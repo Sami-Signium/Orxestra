@@ -45,7 +45,7 @@ async function sbUpdate(table, filter, body) {
     body: JSON.stringify(body)
   });
   if (!r.ok) throw new Error(`Supabase UPDATE ${table}: ${await r.text()}`);
-  return r.json();
+  return true;
 }
 
 // ── Leadership Filter Prompt ──────────────────────────────────────────────────
