@@ -226,7 +226,7 @@ async function fetchWithBrowserless(url) {
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-    .substring(0, 6000);
+    .substring(0, 15000);
 
   return text;
 }
