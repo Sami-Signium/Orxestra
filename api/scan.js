@@ -160,42 +160,37 @@ Antworte nur mit der URL oder UNCHANGED - kein anderer Text.`;
   return text;
 }
 
-// ── 2. Browserless Page Fetch mit Cookie-Accept ───────────────────────────────
+// ── 2. Browserless Page Fetch mit Cookie-Injection ───────────────────────────
 async function fetchWithBrowserless(url) {
   if (!BROWSERLESS_KEY) throw new Error('BROWSERLESS_KEY fehlt');
 
-  // Browserless /function endpoint - fuehrt JavaScript aus und gibt Text zurueck
+  let cookieDomain = '';
+  try { cookieDomain = new URL(url).hostname; } catch(e) {}
+
   const fn = `
     export default async function ({ page }) {
+      // Cookies setzen BEVOR die Seite laedt - verhindert Cookie-Banner
+      await page.setCookie(
+        { name: 'CookieConsent', value: 'true', domain: '${cookieDomain}', path: '/' },
+        { name: 'cookieconsent_status', value: 'dismiss', domain: '${cookieDomain}', path: '/' },
+        { name: 'consent', value: 'true', domain: '${cookieDomain}', path: '/' },
+        { name: 'gdpr', value: '1', domain: '${cookieDomain}', path: '/' },
+        { name: 'CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll', value: '1', domain: '${cookieDomain}', path: '/' }
+      );
+
       await page.goto('${url}', { waitUntil: 'networkidle2', timeout: 25000 });
 
-      // Cookie-Banner akzeptieren - funktioniert auf den meisten AT/EU Seiten
-      const cookieSelectors = [
-        'button[id*="accept"]', 'button[class*="accept"]',
-        'button[id*="agree"]', 'button[class*="agree"]',
-        'button[id*="consent"]', 'button[class*="consent"]',
-        'button[id*="cookie"]', 'button[class*="cookie"]',
-        'button[data-testid*="accept"]',
-        '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
-        '.cookie-accept', '.accept-cookies', '.btn-accept',
-        '[aria-label*="Accept"]', '[aria-label*="Akzeptieren"]',
-        '[aria-label*="Zustimmen"]', '[aria-label*="Alle akzeptieren"]'
-      ];
+      // Fallback: Falls Banner noch sichtbar
+      try {
+        await page.click('#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll');
+        await new Promise(r => setTimeout(r, 1500));
+      } catch(e) {}
+      try {
+        await page.click('button[id*="accept"]');
+        await new Promise(r => setTimeout(r, 1500));
+      } catch(e) {}
 
-      for (const selector of cookieSelectors) {
-        try {
-          const btn = await page.$(selector);
-          if (btn) {
-            await btn.click();
-            await new Promise(r => setTimeout(r, 1500));
-            break;
-          }
-        } catch(e) {}
-      }
-
-      // Warte auf Inhalt
       await new Promise(r => setTimeout(r, 3000));
-
       const html = await page.content();
       return { html };
     }
