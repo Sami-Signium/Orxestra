@@ -187,14 +187,14 @@ async function fetchWithBrowserless(url) {
           const btn = await page.$(selector);
           if (btn) {
             await btn.click();
-            await page.waitForTimeout(1500);
+            await new Promise(r => setTimeout(r, 1500));
             break;
           }
         } catch(e) {}
       }
 
       // Warte auf Inhalt
-      await page.waitForTimeout(3000);
+      await new Promise(r => setTimeout(r, 3000));
 
       const html = await page.content();
       return { html };
