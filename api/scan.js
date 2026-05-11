@@ -169,26 +169,18 @@ async function fetchWithBrowserless(url) {
 
   const fn = `
     export default async function ({ page }) {
-      // Cookies setzen BEVOR die Seite laedt - verhindert Cookie-Banner
-      await page.setCookie(
-        { name: 'CookieConsent', value: 'true', domain: '${cookieDomain}', path: '/' },
-        { name: 'cookieconsent_status', value: 'dismiss', domain: '${cookieDomain}', path: '/' },
-        { name: 'consent', value: 'true', domain: '${cookieDomain}', path: '/' },
-        { name: 'gdpr', value: '1', domain: '${cookieDomain}', path: '/' },
-        { name: 'CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll', value: '1', domain: '${cookieDomain}', path: '/' }
-      );
+      // Cookiebot und andere Banner-Domains blockieren
+      await page.setRequestInterception(true);
+      page.on('request', (req) => {
+        const url = req.url();
+        if (url.includes('cookiebot.com') || url.includes('cookieconsent') || url.includes('consent.')) {
+          req.abort();
+        } else {
+          req.continue();
+        }
+      });
 
       await page.goto('${url}', { waitUntil: 'networkidle2', timeout: 25000 });
-
-      // Fallback: Falls Banner noch sichtbar
-      try {
-        await page.click('#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll');
-        await new Promise(r => setTimeout(r, 1500));
-      } catch(e) {}
-      try {
-        await page.click('button[id*="accept"]');
-        await new Promise(r => setTimeout(r, 1500));
-      } catch(e) {}
 
       await new Promise(r => setTimeout(r, 3000));
       const html = await page.content();
