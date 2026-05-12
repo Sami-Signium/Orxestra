@@ -65,9 +65,14 @@ AUSSCHLIESSEN:
 - Junior, Trainee, Werkstudent, Praktikant
 - Techniker, Meister, Fachkraft (ohne Leitungsfunktion)
 
+Du bekommst den Seitentext UND eine Liste von Links (Text → URL) von der Karriereseite.
+Versuche fuer jede gefundene Position den passenden direkten Link aus der Linkliste zuzuordnen.
+Ein Link passt wenn der Linktext den Jobtitel enthaelt oder sehr aehnlich ist.
+
 Antworte AUSSCHLIESSLICH mit einem JSON-Array. Kein Text davor oder danach. Keine Erklaerung. Keine Markdown.
-Format: [{"title":"Positionstitel","department":"Bereich oder null","level":"C-Level|Geschaeftsfuehrung|Bereichsleitung|Abteilungsleitung|Sonstige Leitungsfunktion","job_url":"URL oder null"}]
+Format: [{"title":"Positionstitel","department":"Bereich oder null","level":"C-Level|Geschaeftsfuehrung|Bereichsleitung|Abteilungsleitung|Sonstige Leitungsfunktion","job_url":"direkte URL zur Stelle oder null"}]
 Wenn keine passenden Positionen: antworte mit []`;
+
 // ── Main Handler ──────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -93,12 +98,10 @@ export default async function handler(req, res) {
 }
 
 // ── 1. Find Career URLs ───────────────────────────────────────────────────────
-// Findet automatisch die direkten Stellenlisten-URLs fuer alle Firmen
 async function findCareerUrls(req, res) {
   const limit  = parseInt(req.query.limit  || '20');
   const offset = parseInt(req.query.offset || '0');
 
-  // Nur Firmen ohne verifizierte career_url oder mit generischer URL
   const targets = await sbSelect('career_targets',
     `active=eq.true&order=priority.asc,company_name.asc&limit=${limit}&offset=${offset}`
   );
@@ -107,9 +110,6 @@ async function findCareerUrls(req, res) {
 
   for (const target of targets) {
     try {
-      // Web-Search nach direkter Stellenlisten-URL
-      const searchQuery = `${target.company_name} Stellenangebote Karriere offene Stellen site:${extractDomain(target.career_url) || target.company_name.toLowerCase().replace(/\s/g, '') + '.at'}`;
-
       const url = await findJobsUrl(target.company_name, target.career_url);
 
       if (url && url !== target.career_url) {
@@ -131,15 +131,10 @@ async function findCareerUrls(req, res) {
   return res.json({ processed: results.length, results });
 }
 
-// Findet die direkte Jobs-URL einer Firma via Claude
 async function findJobsUrl(companyName, currentUrl) {
   const prompt = `Ich suche die direkte URL zur Stellenliste (Jobs/Karriere-Seite) von "${companyName}".
-
 Aktuelle URL: ${currentUrl || 'unbekannt'}
-
-Antworte NUR mit der direkten URL zur Stellenliste - also der Seite wo die aktuellen offenen Stellen aufgelistet sind, nicht die allgemeine Karriere-Hauptseite.
-Wenn du keine bessere URL kennst als die aktuelle, antworte mit: UNCHANGED
-Antworte nur mit der URL oder UNCHANGED - kein anderer Text.`;
+Antworte NUR mit der direkten URL zur Stellenliste. Wenn keine bessere URL bekannt: UNCHANGED`;
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -158,31 +153,57 @@ Antworte nur mit der URL oder UNCHANGED - kein anderer Text.`;
   return text;
 }
 
-// ── 2. Browserless Page Fetch mit Cookie-Injection ───────────────────────────
-async function fetchWithBrowserless(url) {
+// ── 2. Browserless Page Fetch — Text + Links ──────────────────────────────────
+async function fetchWithBrowserless(pageUrl) {
   if (!BROWSERLESS_KEY) throw new Error('BROWSERLESS_KEY fehlt');
 
-  let cookieDomain = '';
-  try { cookieDomain = new URL(url).hostname; } catch(e) {}
+  const baseOrigin = (() => {
+    try { return new URL(pageUrl).origin; } catch(e) { return ''; }
+  })();
 
   const fn = `
     export default async function ({ page }) {
-      // Cookiebot und andere Banner-Domains blockieren
       await page.setRequestInterception(true);
       page.on('request', (req) => {
-        const url = req.url();
-        if (url.includes('cookiebot.com') || url.includes('cookieconsent') || url.includes('consent.')) {
+        const u = req.url();
+        if (u.includes('cookiebot.com') || u.includes('cookieconsent') || u.includes('consent.')) {
           req.abort();
         } else {
           req.continue();
         }
       });
 
-      await page.goto('${url}', { waitUntil: 'networkidle2', timeout: 25000 });
-
+      await page.goto('${pageUrl}', { waitUntil: 'networkidle2', timeout: 25000 });
       await new Promise(r => setTimeout(r, 3000));
-      const html = await page.content();
-      return { html };
+
+      // Text extrahieren
+      const bodyText = await page.evaluate(() => document.body?.innerText || '');
+
+      // Links extrahieren: alle <a href> mit Text
+      const links = await page.evaluate((baseOrigin) => {
+        const anchors = Array.from(document.querySelectorAll('a[href]'));
+        const result = [];
+        for (const a of anchors) {
+          const text = (a.innerText || a.textContent || '').trim().replace(/\\s+/g, ' ');
+          let href = a.getAttribute('href') || '';
+          if (!href || href === '#' || href.startsWith('mailto:') || href.startsWith('javascript:')) continue;
+          // Relative URLs zu absoluten machen
+          if (href.startsWith('/')) href = baseOrigin + href;
+          if (!href.startsWith('http')) continue;
+          if (text && text.length > 2 && text.length < 200) {
+            result.push({ text, href });
+          }
+        }
+        // Duplikate entfernen
+        const seen = new Set();
+        return result.filter(l => {
+          if (seen.has(l.href)) return false;
+          seen.add(l.href);
+          return true;
+        }).slice(0, 300); // max 300 Links
+      }, '${baseOrigin}');
+
+      return { bodyText, links };
     }
   `;
 
@@ -201,24 +222,29 @@ async function fetchWithBrowserless(url) {
   }
 
   const data = await r.json();
-  const html = data?.html || data?.data?.html || '';
+  const bodyText = data?.bodyText || data?.data?.bodyText || '';
+  const links    = data?.links    || data?.data?.links    || [];
 
-  if (!html) throw new Error('Browserless: leere Antwort');
+  if (!bodyText && !links.length) throw new Error('Browserless: leere Antwort');
 
-  const text = html
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
+  // Text kuerzen
+  const trimmedText = bodyText
     .replace(/\s+/g, ' ')
     .trim()
-    .substring(0, 15000);
+    .substring(0, 10000);
 
-  return text;
+  // Links als lesbares Format fuer Claude aufbereiten
+  const linksText = links.length > 0
+    ? '\n\nVERFUEGBARE LINKS AUF DER SEITE:\n' +
+      links.slice(0, 200).map(l => `- "${l.text}" → ${l.href}`).join('\n')
+    : '';
+
+  return trimmedText + linksText;
 }
 
 // ── 3. Claude Analyse ─────────────────────────────────────────────────────────
 async function analyzeWithClaude(content, companyName, baseUrl) {
-  const userPrompt = `Unternehmen: ${companyName}\nBasis-URL: ${baseUrl}\n\nKarriereseiteninhalt:\n${content}`;
+  const userPrompt = `Unternehmen: ${companyName}\nBasis-URL: ${baseUrl}\n\nKarriereseiteninhalt mit Links:\n${content}`;
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -258,29 +284,24 @@ async function scanTarget(target) {
   }
 
   try {
-    // Seite mit Browserless laden (inkl. Cookie-Accept)
-    const pageText = await fetchWithBrowserless(target.career_url);
+    const pageContent = await fetchWithBrowserless(target.career_url);
 
-    if (!pageText || pageText.length < 100) {
+    if (!pageContent || pageContent.length < 100) {
       return { target_id: target.id, company_name: target.company_name, status: 'skipped', error: 'Seite leer' };
     }
 
-    // Claude analysiert den Text
-    const jobs = await analyzeWithClaude(pageText, target.company_name, target.career_url);
+    const jobs = await analyzeWithClaude(pageContent, target.company_name, target.career_url);
 
-    // Last scanned aktualisieren
     await sbUpdate('career_targets', `id=eq.${target.id}`, { last_scanned_at: new Date().toISOString() });
 
     if (!jobs.length) {
-      return { target_id: target.id, company_name: target.company_name, status: 'no_jobs', vacancies_found: 0, text_length: pageText.length };
+      return { target_id: target.id, company_name: target.company_name, status: 'no_jobs', vacancies_found: 0, content_length: pageContent.length };
     }
 
-    // Bestehende Vakanzen laden
     const existing = await sbSelect('career_vacancies', `target_id=eq.${target.id}&is_active=eq.true`);
     const existingTitles = new Set(existing.map(e => e.job_title.toLowerCase().trim()));
     const foundTitles    = new Set(jobs.map(j => j.title.toLowerCase().trim()));
 
-    // Neue einfuegen
     let newCount = 0;
     for (const job of jobs) {
       if (!existingTitles.has(job.title.toLowerCase().trim())) {
@@ -291,7 +312,7 @@ async function scanTarget(target) {
             job_title:     job.title,
             department:    job.department || null,
             job_level:     job.level      || null,
-            job_url:       job.job_url    || target.career_url,
+            job_url:       job.job_url    || null,  // null wenn kein direkter Link gefunden
             is_active:     true,
             first_seen_at: new Date().toISOString(),
             last_seen_at:  new Date().toISOString()
@@ -299,14 +320,21 @@ async function scanTarget(target) {
           newCount++;
         } catch(e) { /* Duplikat ignorieren */ }
       } else {
-        await sbUpdate('career_vacancies',
-          `target_id=eq.${target.id}&job_title=eq.${encodeURIComponent(job.title)}`,
-          { last_seen_at: new Date().toISOString() }
-        );
+        // Bestehende Vakanz: job_url updaten falls jetzt ein besserer Link gefunden wurde
+        if (job.job_url) {
+          await sbUpdate('career_vacancies',
+            `target_id=eq.${target.id}&job_title=eq.${encodeURIComponent(job.title)}`,
+            { last_seen_at: new Date().toISOString(), job_url: job.job_url }
+          );
+        } else {
+          await sbUpdate('career_vacancies',
+            `target_id=eq.${target.id}&job_title=eq.${encodeURIComponent(job.title)}`,
+            { last_seen_at: new Date().toISOString() }
+          );
+        }
       }
     }
 
-    // Verschwundene als besetzt markieren
     let filledCount = 0;
     for (const ex of existing) {
       if (!foundTitles.has(ex.job_title.toLowerCase().trim())) {
@@ -322,7 +350,7 @@ async function scanTarget(target) {
       vacancies_found:  jobs.length,
       new_vacancies:    newCount,
       filled_vacancies: filledCount,
-      text_length:      pageText.length,
+      content_length:   pageContent.length,
       jobs,
       duration_ms:      Date.now() - startTime
     };
@@ -354,7 +382,7 @@ async function scanAllCompanies(req, res) {
 
   for (const target of targets) {
     results.push(await scanTarget(target));
-    await sleep(1000); // 1 Sekunde zwischen Requests
+    await sleep(1000);
   }
 
   return res.json({
@@ -396,20 +424,20 @@ async function getStats(req, res) {
   ]);
   const vacs = vacancies || [];
   return res.json({
-    total_targets:    targets.length,
-    total_vacancies:  vacs.length,
-    c_level:          vacs.filter(v => v.job_level === 'C-Level').length,
+    total_targets:      targets.length,
+    total_vacancies:    vacs.length,
+    c_level:            vacs.filter(v => v.job_level === 'C-Level').length,
     geschaeftsfuehrung: vacs.filter(v => v.job_level === 'Geschaeftsfuehrung').length,
-    vacancies_new_7d: vacs.filter(v => daysSince(v.first_seen_at) <= 7).length,
-    outreach_pending: vacs.filter(v => !v.outreach_sent).length
+    vacancies_new_7d:   vacs.filter(v => daysSince(v.first_seen_at) <= 7).length,
+    outreach_pending:   vacs.filter(v => !v.outreach_sent).length
   });
 }
 
 async function testBrowserless(req, res) {
   const url = req.query.url || 'https://karriere.viennaairport.com';
   try {
-    const text = await fetchWithBrowserless(url);
-    return res.json({ status: 'ok', text_length: text.length, preview: text.substring(0, 1000) });
+    const content = await fetchWithBrowserless(url);
+    return res.json({ status: 'ok', content_length: content.length, preview: content.substring(0, 2000) });
   } catch(e) {
     return res.json({ status: 'error', error: e.message });
   }
