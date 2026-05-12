@@ -610,7 +610,7 @@ async function loadVacancies() {
 async function loadHrContacts(vacancies) {
   // Alle unique Firmennamen sammeln
   const companyNames = [...new Set(vacancies.map(v => v.company_name).filter(Boolean))];
-  if (!companyNames.isEmpty) {
+  if (companyNames.length > 0) {
     // Supabase: contacts mit diesen Firmennamen suchen
     // Wir laden alle relevanten Kontakte in einem Query
     try {
