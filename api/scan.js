@@ -48,17 +48,16 @@ async function sbUpdate(table, filter, body) {
   return true;
 }
 
-// ── Leadership Filter Prompt ──────────────────────────────────────────────────
-const LEADERSHIP_SYSTEM_PROMPT = `Du bist ein Executive Search Spezialist. Analysiere den Text einer Karriereseite und extrahiere NUR Leitungspositionen mit einem geschaetzten Jahresgehalt ueber EUR 125.000.
+const LEADERSHIP_SYSTEM_PROMPT = `Du bist ein Executive Search Spezialist. Analysiere den Text einer Karriereseite und extrahiere NUR Leitungspositionen.
 
 EINSCHLIESSEN:
 - C-Level: CEO, CFO, COO, CTO, CHRO, CMO, CDO, CRO, CPO, CIO, CSO
-- Geschaeftsfuehrer/in, Managing Director, Generaldirektor, Vorstand
-- Bereichsleiter/in, Division Head, Head of [Bereich]
-- Abteilungsleiter/in (nur bei grossen Unternehmen / strategischen Abteilungen)
+- Geschaeftsfuehrung: Geschaeftsfuehrer/in, Managing Director, Generaldirektor, Vorstand
+- Bereichsleitung: Head of [Bereich], Director, Vice President, Senior Vice President
+- Abteilungsleitung: Leiter/in [Bereich] (bei Grossunternehmen)
 - Country Manager, Regional Director, Market Lead
-- Vice President, Senior Vice President
 - General Counsel, Head of Strategy, Head of M&A
+- Alle sonstigen Leitungsfunktionen mit Fuehrungsverantwortung
 
 AUSSCHLIESSEN:
 - Team Lead / Gruppenleiter (operative Ebene)
@@ -69,7 +68,6 @@ AUSSCHLIESSEN:
 Antworte AUSSCHLIESSLICH mit einem JSON-Array. Kein Text davor oder danach. Keine Erklaerung. Keine Markdown.
 Format: [{"title":"Positionstitel","department":"Bereich oder null","level":"C-Level|Geschaeftsfuehrung|Bereichsleitung|Abteilungsleitung|Sonstige Leitungsfunktion","job_url":"URL oder null"}]
 Wenn keine passenden Positionen: antworte mit []`;
-
 // ── Main Handler ──────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
