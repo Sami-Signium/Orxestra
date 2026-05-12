@@ -597,11 +597,11 @@ async function importHrContacts(req, res) {
   for (const contact of HR_CONTACTS) {
     try {
       await sbInsert('contacts', {
-        first_name:   contact.first_name || null,
-        last_name:    contact.last_name  || null,
-        company_name: contact.company_name,
-        position:     contact.position  || null,
-        email:        contact.email     || null
+        full_name:  (((contact.first_name || '') + ' ' + (contact.last_name || '')).trim()) || '(unbekannt)',
+        role:       contact.position  || null,
+        email:      contact.email     || null,
+        source:     contact.source    || null,
+        location:   contact.city      || null
       });
       inserted++;
     } catch(e) {
