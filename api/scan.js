@@ -609,10 +609,18 @@ async function importHrContacts(req, res) {
     location:   contact.company_name || null
   }));
 
-  try {
-    await sbInsert('contacts', batch);
-    return res.json({ total: HR_CONTACTS.length, inserted: batch.length, skipped: 0, errors: [] });
-  } catch(e) {
-    return res.status(500).json({ error: e.message });
-  }
+  // Alle auf einmal als Batch einfügen — Duplikate ignorieren
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/contacts`, {
+    method: 'POST',
+    headers: {
+      'apikey': SUPABASE_SERVICE_KEY,
+      'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'resolution=ignore-duplicates,return=representation'
+    },
+    body: JSON.stringify(batch)
+  });
+  if (!r.ok) return res.status(500).json({ error: `Supabase: ${await r.text()}` });
+  const inserted = await r.json();
+  return res.json({ total: HR_CONTACTS.length, inserted: inserted.length, skipped: HR_CONTACTS.length - inserted.length, errors: [] });
 }
