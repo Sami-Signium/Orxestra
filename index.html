@@ -725,8 +725,12 @@ function renderTable() {
     return `<span class="inserat-link no-link">—</span>`;
   };
 
+  // Vacancies in window für Modal-Zugriff speichern
+  window._vacancyMap = {};
+  rows.forEach(v => { window._vacancyMap[v.id] = v; });
+
   document.getElementById('tableBody').innerHTML = rows.map(v => `
-    <tr onclick="openModal(${JSON.stringify(JSON.stringify(v))})">
+    <tr onclick="openModalById(${v.id})" style="cursor:pointer">
       <td class="company-name">${v.company_name || '—'}</td>
       <td class="job-title">${v.job_title || '—'}</td>
       <td><span class="level-badge ${levelClass(v.job_level)}">${v.job_level || '—'}</span></td>
@@ -738,8 +742,13 @@ function renderTable() {
 }
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
-function openModal(jsonStr) {
-  const v = JSON.parse(jsonStr);
+function openModalById(id) {
+  const v = window._vacancyMap && window._vacancyMap[id];
+  if (!v) return;
+  openModal(v);
+}
+
+function openModal(v) {
   currentVacancy = v;
 
   document.getElementById('modalCompany').textContent = v.company_name || '';
