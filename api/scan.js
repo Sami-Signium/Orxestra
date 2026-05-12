@@ -601,11 +601,7 @@ async function importHrContacts(req, res) {
         last_name:    contact.last_name  || null,
         company_name: contact.company_name,
         position:     contact.position  || null,
-        email:        contact.email     || null,
-        city:         contact.city      || null,
-        contact_type: 'HR',
-        source:       contact.source    || null,
-        created_at:   new Date().toISOString()
+        email:        contact.email     || null
       });
       inserted++;
     } catch(e) {
