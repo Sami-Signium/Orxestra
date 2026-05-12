@@ -90,6 +90,7 @@ export default async function handler(req, res) {
     if (action === 'get-targets')    return await getTargets(req, res);
     if (action === 'get-stats')      return await getStats(req, res);
     if (action === 'test')           return await testBrowserless(req, res);
+    if (action === 'get-job-description') return await getJobDescription(req, res);
     return res.status(400).json({ error: 'Unbekannte action. Verfuegbar: find-urls, scan-one, scan-all, get-vacancies, get-targets, get-stats, test' });
   } catch (err) {
     console.error('[orxestra]', err);
@@ -440,6 +441,86 @@ async function testBrowserless(req, res) {
     return res.json({ status: 'ok', content_length: content.length, preview: content.substring(0, 2000) });
   } catch(e) {
     return res.json({ status: 'error', error: e.message });
+  }
+}
+
+// ── Get Job Description (on demand) ──────────────────────────────────────────
+async function getJobDescription(req, res) {
+  const { vacancy_id, job_url } = req.method === 'POST' ? req.body : req.query;
+
+  if (!job_url) return res.status(400).json({ error: 'job_url fehlt' });
+
+  try {
+    // Schritt 1: einfacher HTTP fetch (kostenlos, schnell)
+    let text = '';
+    try {
+      const r = await fetch(job_url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        signal: AbortSignal.timeout(8000)
+      });
+      if (r.ok) {
+        const html = await r.text();
+        text = html
+          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .substring(0, 8000);
+      }
+    } catch(e) { /* HTTP fetch fehlgeschlagen — Browserless als Fallback */ }
+
+    // Schritt 2: Browserless als Fallback wenn Text zu kurz
+    if (text.length < 200) {
+      try {
+        text = await fetchWithBrowserless(job_url);
+      } catch(e) {
+        return res.status(500).json({ error: 'Seite konnte nicht geladen werden: ' + e.message });
+      }
+    }
+
+    // Schritt 3: Claude extrahiert strukturierte Stellenbeschreibung
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        max_tokens: 1500,
+        system: `Du bist ein Executive Search Spezialist. Extrahiere aus dem Text einer Stellenausschreibung die wichtigsten Informationen strukturiert und praezise. Antworte auf Deutsch.`,
+        messages: [{
+          role: 'user',
+          content: `Extrahiere aus dieser Stellenausschreibung folgende Informationen in strukturierter Form:
+
+1. **Position & Level:** Titel, Reporting-Linie (an wen berichtet die Stelle?)
+2. **Standort:** Stadt/Land
+3. **Aufgaben:** Die 3-5 wichtigsten Verantwortungsbereiche (kurz, stichpunktartig)
+4. **Anforderungen:** Die 3-5 wichtigsten gesuchten Qualifikationen
+5. **Besonderheiten:** Gehalt, Besonderheiten, Startdatum falls erwaehnt
+6. **Einschaetzung:** 2 Saetze — fuer welches Kandidatenprofil ist diese Stelle ideal?
+
+Seitentext:
+${text.substring(0, 6000)}`
+        }]
+      })
+    });
+
+    const data = await response.json();
+    const description = (data.content?.[0]?.text || '').trim();
+
+    // Optional: in Supabase speichern wenn vacancy_id vorhanden
+    if (vacancy_id && description) {
+      try {
+        await sbUpdate('career_vacancies', `id=eq.${vacancy_id}`, {
+          job_description: description,
+          description_fetched_at: new Date().toISOString()
+        });
+      } catch(e) { /* Spalte existiert evtl. noch nicht — ignorieren */ }
+    }
+
+    return res.json({ description, source_length: text.length });
+
+  } catch(err) {
+    return res.status(500).json({ error: err.message });
   }
 }
 
