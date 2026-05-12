@@ -408,7 +408,9 @@ async function scanAllCompanies(req, res) {
 }
 
 async function getVacancies(req, res) {
-  const { min_days = 0, level, limit = 200, priority } = req.query;
+  const { min_days = 0, level, limit = 200, nukleus } = req.query;
+  // Nukleus-Filter: View nutzen die priority=10 Firmen joined
+  const table = nukleus === 'true' ? 'nukleus_vacancies' : 'career_vacancies';
   let params = `is_active=eq.true&order=first_seen_at.desc&limit=${limit}`;
   if (level) params += `&job_level=eq.${encodeURIComponent(level)}`;
   if (parseInt(min_days) > 0) {
@@ -416,16 +418,7 @@ async function getVacancies(req, res) {
     cutoff.setDate(cutoff.getDate() - parseInt(min_days));
     params += `&first_seen_at=lte.${cutoff.toISOString()}`;
   }
-  // Priority-Filter: nur Vakanzen von Firmen mit bestimmter Priority
-  if (priority) {
-    const targets = await sbSelect('career_targets', `priority=eq.${priority}&active=eq.true&select=company_name`);
-    const names = targets.map(t => t.company_name);
-    if (names.length > 0) {
-      const nameFilter = names.map(n => `company_name.eq.${encodeURIComponent(n)}`).join(',');
-      params += `&or=(${nameFilter})`;
-    }
-  }
-  const vacancies = await sbSelect('career_vacancies', params);
+  const vacancies = await sbSelect(table, params);
   return res.json({ vacancies, count: vacancies.length });
 }
 

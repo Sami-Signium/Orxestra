@@ -936,7 +936,7 @@ async function loadStats() {
 // ── Load Vacancies ────────────────────────────────────────────────────────────
 async function loadVacancies() {
   try {
-    const r = await fetch(`${API_BASE}?action=get-vacancies&limit=300`);
+    const r = await fetch(`${API_BASE}?action=get-vacancies&limit=300&nukleus=true`);
     const d = await r.json();
     allVacancies = d.vacancies || [];
 
