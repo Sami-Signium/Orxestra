@@ -675,9 +675,6 @@ async function testScanUrls(req, res) {
   }
 }
 
-  return res.json(results);
-}
-
 // ── Scan Report: Gruppen A / B / C ────────────────────────────────────────────
 async function scanReport(req, res) {
   // HR Kontakte aus Supabase laden
