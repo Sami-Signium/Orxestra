@@ -1,6 +1,8 @@
+
 {
   "name": "orxestra",
   "version": "1.0.0",
   "description": "Career Intelligence Scanner fuer oesterreichische Grossunternehmen",
-  "private": true
+  "private": true,
+  "type": "module"
 }
