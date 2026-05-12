@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="de">
 <head>
@@ -555,7 +556,11 @@
     <div class="modal-section">
       <div class="modal-section-label">Aktionen</div>
       <a id="modalInseratBtn" href="#" target="_blank" class="modal-inserat-btn">↗ Inserat öffnen</a>
-      <button class="modal-brief-btn" onclick="generateBrief()">✦ Brief erstellen</button>
+      <button class="modal-brief-btn" id="stellenBtn" onclick="fetchJobDescription()">↓ Stellenbeschreibung einholen</button>
+      <div class="brief-area" id="stellenArea" style="display:none">
+        <textarea id="stellenText" placeholder="Stellenbeschreibung wird geladen…" style="height:280px"></textarea>
+      </div>
+      <button class="modal-brief-btn" style="margin-top:8px" onclick="generateBrief()">✦ Brief erstellen</button>
       <div class="brief-area" id="briefArea">
         <textarea id="briefText" placeholder="Brief wird generiert…"></textarea>
         <button class="copy-btn" onclick="copyBrief()">Kopieren</button>
@@ -779,6 +784,10 @@ function openModal(jsonStr) {
   // Brief area zurücksetzen
   document.getElementById('briefArea').style.display = 'none';
   document.getElementById('briefText').value = '';
+  document.getElementById('stellenArea').style.display = 'none';
+  document.getElementById('stellenText').value = '';
+  document.getElementById('stellenBtn').textContent = '↓ Stellenbeschreibung einholen';
+  document.getElementById('stellenBtn').disabled = false;
 
   document.getElementById('modal').classList.add('open');
 }
@@ -788,6 +797,41 @@ function closeModal(e) {
     document.getElementById('modal').classList.remove('open');
     currentVacancy = null;
   }
+}
+
+// ── Stellenbeschreibung einholen ──────────────────────────────────────────────
+async function fetchJobDescription() {
+  if (!currentVacancy) return;
+  const btn  = document.getElementById('stellenBtn');
+  const area = document.getElementById('stellenArea');
+  const txt  = document.getElementById('stellenText');
+
+  if (!currentVacancy.job_url || currentVacancy.job_url.length < 10) {
+    area.style.display = 'block';
+    txt.value = 'Kein direkter Inserat-Link verfügbar für diese Stelle.';
+    return;
+  }
+
+  btn.textContent = 'Wird geladen…';
+  btn.disabled = true;
+  area.style.display = 'block';
+  txt.value = 'Stellenbeschreibung wird eingeholt…';
+
+  try {
+    const params = new URLSearchParams({
+      action: 'get-job-description',
+      job_url: currentVacancy.job_url,
+      vacancy_id: currentVacancy.id || ''
+    });
+    const r = await fetch(`${API_BASE}?${params}`);
+    const d = await r.json();
+    txt.value = d.description || d.error || 'Keine Beschreibung gefunden.';
+  } catch(e) {
+    txt.value = 'Fehler: ' + e.message;
+  }
+
+  btn.textContent = '↓ Stellenbeschreibung einholen';
+  btn.disabled = false;
 }
 
 // ── Brief generieren ──────────────────────────────────────────────────────────
