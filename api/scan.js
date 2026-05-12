@@ -415,11 +415,13 @@ async function getVacancies(req, res) {
 
 async function getTargets(req, res) {
   const { priority, country } = req.query;
-  let params = `active=eq.true&order=priority.asc,company_name.asc&limit=200`;
+  const limit  = parseInt(req.query.limit  || '200');
+  const offset = parseInt(req.query.offset || '0');
+  let params = `active=eq.true&order=priority.asc,company_name.asc&limit=${limit}&offset=${offset}`;
   if (priority) params += `&priority=eq.${priority}`;
   if (country)  params += `&country=eq.${country}`;
   const targets = await sbSelect('career_targets', params);
-  return res.json({ targets, count: targets.length });
+  return res.json({ targets, count: targets.length, offset, limit });
 }
 
 async function getStats(req, res) {
