@@ -98,6 +98,9 @@ export default async function handler(req, res) {
     if (action === 'test-gruppe-a')         return await testGruppeA(req, res);
     if (action === 'import-nukleus')        return await importNukleus(req, res);
     if (action === 'get-hr-contacts')       return await getHrContacts(req, res);
+    if (action === 'upload-contacts')        return await uploadContacts(req, res);
+    if (action === 'add-target')             return await addTarget(req, res);
+    if (action === 'delete-target')          return await deleteTarget(req, res);
     if (action === 'generate-brief')        return await generateBrief(req, res);
     return res.status(400).json({ error: 'Unbekannte action. Verfuegbar: find-urls, scan-one, scan-all, get-vacancies, get-targets, get-stats, test' });
   } catch (err) {
@@ -1391,4 +1394,57 @@ Brief auf max. 150 Wörter. Professionell, nicht werblich.`
   const data = await response.json();
   const brief = data.content?.[0]?.text || 'Fehler beim Generieren.';
   return res.json({ brief });
+}
+
+// ── Upload Contacts (UPSERT) ──────────────────────────────────────────────────
+async function uploadContacts(req, res) {
+  const contacts = req.body?.contacts;
+  if (!Array.isArray(contacts) || !contacts.length)
+    return res.status(400).json({ error: 'contacts array fehlt' });
+
+  let upserted = 0, errors = 0;
+  for (const c of contacts) {
+    if (!c.email || !c.full_name) continue;
+    try {
+      // UPSERT via Supabase: on conflict update
+      const r = await fetch(
+        `${SUPABASE_URL}/rest/v1/contacts`,
+        {
+          method: 'POST',
+          headers: {
+            ...sbHeaders(),
+            'Prefer': 'resolution=merge-duplicates,return=minimal'
+          },
+          body: JSON.stringify({
+            full_name:      c.full_name,
+            role:           c.role || null,
+            email:          c.email,
+            location:       c.location || null,
+            source:         c.source || 'CSV-Import',
+            verified:       false,
+            do_not_contact: false
+          })
+        }
+      );
+      if (r.ok) upserted++;
+      else { errors++; }
+    } catch(e) { errors++; }
+  }
+  return res.json({ total: contacts.length, upserted, errors });
+}
+
+// ── Add Target ────────────────────────────────────────────────────────────────
+async function addTarget(req, res) {
+  const body = req.body || {};
+  if (!body.company_name) return res.status(400).json({ error: 'company_name fehlt' });
+  const result = await sbInsert('career_targets', { ...body, active: true });
+  return res.json(result || { ok: true });
+}
+
+// ── Delete Target ─────────────────────────────────────────────────────────────
+async function deleteTarget(req, res) {
+  const { target_id } = req.query;
+  if (!target_id) return res.status(400).json({ error: 'target_id fehlt' });
+  await sbDelete('career_targets', `id=eq.${target_id}`);
+  return res.json({ ok: true });
 }

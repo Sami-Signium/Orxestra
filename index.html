@@ -756,6 +756,114 @@
 <!-- end table -->
 </div><!-- end tab-vakanzen -->
 
+
+<!-- FIRMEN TAB -->
+<div id="tab-firmen" class="tab-section">
+<div class="firmen-layout">
+
+  <div class="firmen-sidebar">
+
+    <!-- Firmen CSV Upload -->
+    <div>
+      <h3>Firmen importieren</h3>
+      <div class="upload-zone" id="uploadZone"
+           onclick="document.getElementById('csvFile').click()"
+           ondragover="event.preventDefault();this.classList.add('drag')"
+           ondragleave="this.classList.remove('drag')"
+           ondrop="handleDrop(event)">
+        <input type="file" id="csvFile" accept=".csv,.txt" onchange="handleFileUpload(event)">
+        <div class="upload-icon">⇪</div>
+        <div class="upload-title">Firmen hochladen</div>
+        <div class="upload-sub">Spalten: Firma | Career-URL | Land | Branche</div>
+        <div class="upload-format">Trennzeichen: Semikolon oder Komma<br>Erste Zeile = Header</div>
+      </div>
+      <div class="import-progress" id="importProgress">
+        <div id="importStatus">Importiere…</div>
+        <div class="progress-bar-wrap"><div class="progress-bar" id="progressBar"></div></div>
+        <div id="importLog" style="font-size:10px;color:var(--muted);max-height:80px;overflow-y:auto"></div>
+      </div>
+    </div>
+
+    <!-- HR-Kontakte CSV Upload -->
+    <div>
+      <h3>HR-Kontakte importieren</h3>
+      <div class="upload-zone" id="uploadZoneContacts"
+           onclick="document.getElementById('csvContacts').click()"
+           ondragover="event.preventDefault();this.classList.add('drag')"
+           ondragleave="this.classList.remove('drag')"
+           ondrop="handleDropContacts(event)">
+        <input type="file" id="csvContacts" accept=".csv,.txt" onchange="handleContactsUpload(event)">
+        <div class="upload-icon">⇪</div>
+        <div class="upload-title">HR-Kontakte hochladen</div>
+        <div class="upload-sub">Ersetzt vorhandene automatisch (UPSERT)</div>
+        <div class="upload-format">Spalten: Firma | Name | Titel | Email<br>Trennzeichen: Semikolon oder Komma<br>Erste Zeile = Header</div>
+      </div>
+      <div class="import-progress" id="importProgressContacts">
+        <div id="importStatusContacts">Importiere…</div>
+        <div class="progress-bar-wrap"><div class="progress-bar" id="progressBarContacts"></div></div>
+        <div id="importLogContacts" style="font-size:10px;color:var(--muted);max-height:80px;overflow-y:auto"></div>
+      </div>
+    </div>
+
+    <!-- Manuell -->
+    <div>
+      <h3>Firma manuell hinzufügen</h3>
+      <div class="manual-form">
+        <input type="text" id="newFirma" placeholder="Firmenname *" />
+        <input type="text" id="newUrl" placeholder="Career-URL *" />
+        <select id="newLand">
+          <option value="AT">Österreich (AT)</option>
+          <option value="DE">Deutschland (DE)</option>
+          <option value="CH">Schweiz (CH)</option>
+          <option value="PL">Polen (PL)</option>
+          <option value="CZ">Tschechien (CZ)</option>
+          <option value="HU">Ungarn (HU)</option>
+          <option value="RO">Rumänien (RO)</option>
+          <option value="OTHER">Sonstiges</option>
+        </select>
+        <input type="text" id="newBranche" placeholder="Branche (optional)" />
+        <button class="btn-primary" onclick="addManualTarget()">+ Firma hinzufügen</button>
+      </div>
+    </div>
+
+    <!-- Scan -->
+    <div>
+      <h3>Scan</h3>
+      <button class="btn-secondary" onclick="scanAllTargets()" id="scanAllBtn">▷ Alle Firmen scannen</button>
+      <div style="font-size:10px;color:var(--muted);margin-top:8px;letter-spacing:0.04em;line-height:1.6">
+        Scannt alle aktiven Career-URLs nach offenen Führungspositionen.
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Firmenliste -->
+  <div class="firmen-main">
+    <div class="firmen-toolbar">
+      <span class="firmen-count" id="firmenCount">Lade…</span>
+      <input type="text" class="firmen-search" placeholder="Firma suchen…" id="firmenSearch" oninput="filterTargets()">
+    </div>
+    <table class="targets-table" id="targetsTable">
+      <thead>
+        <tr>
+          <th>Firma</th>
+          <th>Branche</th>
+          <th>Land</th>
+          <th>Career-URL</th>
+          <th>Status</th>
+          <th>Letzter Scan</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="targetsBody">
+        <tr><td colspan="7" style="text-align:center;padding:40px;color:var(--muted);font-size:11px">Lade Firmen…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+</div><!-- end tab-firmen -->
+
 <!-- MODAL -->
 <div class="modal-overlay" id="modal" onclick="closeModal(event)">
   <div class="modal">
