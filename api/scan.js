@@ -93,6 +93,8 @@ export default async function handler(req, res) {
     if (action === 'get-job-description') return await getJobDescription(req, res);
     if (action === 'import-hr')           return await importHrContacts(req, res);
     if (action === 'delete-hr')           return await deleteHrContacts(req, res);
+    if (action === 'test-scan-urls')      return await testScanUrls(req, res);
+    if (action === 'scan-report')         return await scanReport(req, res);
     return res.status(400).json({ error: 'Unbekannte action. Verfuegbar: find-urls, scan-one, scan-all, get-vacancies, get-targets, get-stats, test' });
   } catch (err) {
     console.error('[orxestra]', err);
@@ -604,7 +606,6 @@ async function importHrContacts(req, res) {
   const batch = HR_CONTACTS.map(contact => ({
     full_name:  (((contact.first_name || '') + ' ' + (contact.last_name || '')).trim()) || '(unbekannt)',
     role:       contact.position  || null,
-    email:      contact.email     || null,
     source:     contact.source    || null,
     location:   contact.company_name || null
   }));
@@ -623,4 +624,118 @@ async function importHrContacts(req, res) {
   if (!r.ok) return res.status(500).json({ error: `Supabase: ${await r.text()}` });
   const inserted = await r.json();
   return res.json({ total: HR_CONTACTS.length, inserted: inserted.length, skipped: HR_CONTACTS.length - inserted.length, errors: [] });
+}
+
+
+// ── Test Scan URLs (Batch) ────────────────────────────────────────────────────
+async function testScanUrls(req, res) {
+  const offset = parseInt(req.query.offset || '0');
+  const batchSize = 50;
+
+  const targets = await sbSelect('career_targets',
+    `active=eq.true&career_url=neq.&select=id,company_name,career_url,notes&order=id&limit=${batchSize}&offset=${offset}`
+  );
+
+  const valid = targets.filter(t => {
+    const u = t.career_url || '';
+    return u.length > 10 && !u.includes('Careers"') && !u.includes('myworkdayjobs.com/fileadmin') && !u.includes('.wd3.mywork');
+  });
+
+  const results = { ok: [], fail: [], total: valid.length, offset, next_offset: offset + batchSize };
+
+  for (const t of valid) {
+    try {
+      const resp = await fetch(t.career_url, {
+        method: 'GET',
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; OrxestraBot/1.0)' },
+        signal: AbortSignal.timeout(8000)
+      });
+      const text = await resp.text();
+      const hasContent = text.length > 500 &&
+        (text.toLowerCase().includes('job') || text.toLowerCase().includes('stelle') ||
+         text.toLowerCase().includes('karriere') || text.toLowerCase().includes('position'));
+
+      const status = (resp.ok && hasContent) ? 'SCAN:OK' : 'SCAN:FAIL';
+      results[resp.ok && hasContent ? 'ok' : 'fail'].push(t.company_name);
+
+      // Notes updaten - alten SCAN Status ersetzen
+      const oldNotes = (t.notes || '').replace(/SCAN:(OK|FAIL)/g, '').trim().replace(/\s*\|\s*$/, '');
+      const newNotes = oldNotes ? `${oldNotes} | ${status}` : status;
+      await sbUpdate('career_targets', `id=eq.${t.id}`, { notes: newNotes });
+
+    } catch(e) {
+      results.fail.push(t.company_name);
+      const oldNotes = (t.notes || '').replace(/SCAN:(OK|FAIL)/g, '').trim().replace(/\s*\|\s*$/, '');
+      await sbUpdate('career_targets', `id=eq.${t.id}`, {
+        notes: oldNotes ? `${oldNotes} | SCAN:FAIL` : 'SCAN:FAIL'
+      });
+    }
+  }
+
+  return res.json(results);
+}
+
+// ── Scan Report: Gruppen A / B / C ────────────────────────────────────────────
+async function scanReport(req, res) {
+  // HR Kontakte aus Supabase laden
+  const hrContacts = await sbSelect('contacts',
+    `company_id=is.null&select=full_name,role,email,location,source&limit=500`
+  );
+
+  // HR Map aufbauen: location (=Firmenname) → {name, email}
+  const hrMap = {};
+  for (const c of hrContacts) {
+    const key = (c.location || '').toLowerCase().trim();
+    if (!key) continue;
+    if (!hrMap[key] || (c.email && !hrMap[key].email)) {
+      hrMap[key] = {
+        name: c.full_name || '',
+        title: c.role || '',
+        email: c.email || ''
+      };
+    }
+  }
+
+  // Alle Targets mit SCAN:OK laden
+  const allTargets = await sbSelect('career_targets',
+    `active=eq.true&notes=like.*SCAN:OK*&select=id,company_name,career_url,country,industry,priority&order=priority,company_name&limit=500`
+  );
+
+  const gruppeA = [], gruppeB = [], gruppeC = [];
+
+  for (const t of allTargets) {
+    const key = t.company_name.toLowerCase().trim();
+    let hr = hrMap[key];
+    if (!hr) {
+      for (const [k, v] of Object.entries(hrMap)) {
+        if (k.includes(key.substring(0,8)) || key.includes(k.substring(0,8))) { hr = v; break; }
+      }
+    }
+
+    const row = {
+      firma: t.company_name,
+      career_url: t.career_url,
+      land: t.country || '',
+      branche: t.industry || '',
+      prioritaet: t.priority,
+      hr_name: hr?.name || '',
+      hr_titel: hr?.title || '',
+      email: hr?.email || ''
+    };
+
+    if (hr?.name && hr.name !== '(unbekannt)' && hr.email) {
+      gruppeA.push(row);
+    } else if (hr?.name && hr.name !== '(unbekannt)') {
+      gruppeB.push(row);
+    } else {
+      gruppeC.push(row);
+    }
+  }
+
+  return res.json({
+    zusammenfassung: { gesamt_scannbar: allTargets.length, gruppe_a: gruppeA.length, gruppe_b: gruppeB.length, gruppe_c: gruppeC.length },
+    gruppe_a: gruppeA,
+    gruppe_b: gruppeB,
+    gruppe_c: gruppeC
+  });
 }
