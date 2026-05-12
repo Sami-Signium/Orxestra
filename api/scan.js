@@ -1,3 +1,4 @@
+
 // api/scan.js
 // ORXESTRA Career Scanner v1
 // Eigenstaendiger Career Intelligence Scanner fuer oesterreichische Grossunternehmen
@@ -96,6 +97,12 @@ export default async function handler(req, res) {
     if (action === 'test-scan-urls')      return await testScanUrls(req, res);
     if (action === 'scan-report')         return await scanReport(req, res);
     if (action === 'test-gruppe-a')         return await testGruppeA(req, res);
+    if (action === 'import-nukleus')        return await importNukleus(req, res);
+    if (action === 'get-hr-contacts')       return await getHrContacts(req, res);
+    if (action === 'upload-contacts')        return await uploadContacts(req, res);
+    if (action === 'add-target')             return await addTarget(req, res);
+    if (action === 'delete-target')          return await deleteTarget(req, res);
+    if (action === 'generate-brief')        return await generateBrief(req, res);
     return res.status(400).json({ error: 'Unbekannte action. Verfuegbar: find-urls, scan-one, scan-all, get-vacancies, get-targets, get-stats, test' });
   } catch (err) {
     console.error('[orxestra]', err);
@@ -849,4 +856,596 @@ async function testGruppeA(req, res) {
     erreichbar_liste: ok.map(r => ({firma: r.firma, url: r.url})),
     nicht_erreichbar_liste: fail.map(r => ({firma: r.firma, url: r.url, grund: r.reason}))
   });
+}
+
+// ── Import Nukleus Targets ────────────────────────────────────────────────────
+async function importNukleus(req, res) {
+  const NUKLEUS = [
+  {
+    "company_name": "AMS OSRAM AG",
+    "career_url": "https://jobs.ams-osram.com/search/jobs",
+    "country": "AT",
+    "industry": "Technologie",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "AVL List GmbH",
+    "career_url": "https://jobs.avl.com",
+    "country": "AT",
+    "industry": "Maschinenbau",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Allianz Österreich",
+    "career_url": "https://www.allianz.at/karriere",
+    "country": "AT",
+    "industry": "Versicherung",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Amcor (inkl. Berry)",
+    "career_url": "https://www.amcor.com/careers",
+    "country": "AT",
+    "industry": "Packaging",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Andritz AG",
+    "career_url": "https://careers.andritz.com",
+    "country": "AT",
+    "industry": "Maschinenbau",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Ardagh Group",
+    "career_url": "https://careers.ardaghgroup.com/jobs",
+    "country": "LU",
+    "industry": "Packaging",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "BASF",
+    "career_url": "https://karriere.basf.com",
+    "country": "DE",
+    "industry": "Chemie",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "BILLA AG",
+    "career_url": "https://jobs.rewe-group.com/jobs?company=Billa",
+    "country": "AT",
+    "industry": "Handel/Retail",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Beiersdorf CEE",
+    "career_url": "https://careers.beiersdorf.com/",
+    "country": "AT",
+    "industry": "FMCG",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Blum GmbH",
+    "career_url": "https://www.blum.com/en/about-blum/careers/job-openings",
+    "country": "AT",
+    "industry": "Maschinenbau",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Boston Consulting Group Austria",
+    "career_url": "https://jobs.bcg.com",
+    "country": "AT",
+    "industry": "Consulting",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Brau Union Österreich AG",
+    "career_url": "https://www.brauunion.at/karriere",
+    "country": "AT",
+    "industry": "FMCG",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "CA Immo AG",
+    "career_url": "https://www.caimmo.com/jobs",
+    "country": "AT",
+    "industry": "Immobilien",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Crown Holdings",
+    "career_url": "https://www.crown.com/de/karriere",
+    "country": "AT",
+    "industry": "Packaging",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Deloitte Austria",
+    "career_url": "https://apply.deloitte.com/careers",
+    "country": "AT",
+    "industry": "Consulting",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Doka Group",
+    "career_url": "https://www.doka.com/jobs",
+    "country": "AT",
+    "industry": "Bau",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "EY Austria",
+    "career_url": "https://careers.ey.com/",
+    "country": "AT",
+    "industry": "Consulting",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Energie Steiermark AG",
+    "career_url": "https://www.energie-steiermark.at/jobs",
+    "country": "AT",
+    "industry": "Energie",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Engel Austria GmbH",
+    "career_url": "https://jobs.engelglobal.com",
+    "country": "AT",
+    "industry": "Maschinenbau",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Erste Group Bank AG",
+    "career_url": "https://www.erstegroup.com/karriere",
+    "country": "AT",
+    "industry": "Finanzdienstleistungen",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "FACC AG",
+    "career_url": "https://jobs.facc.com",
+    "country": "AT",
+    "industry": "Luftfahrt",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Frequentis AG",
+    "career_url": "https://jobs.frequentis.com",
+    "country": "AT",
+    "industry": "Technologie",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Geberit",
+    "career_url": "https://jobs.geberit.com",
+    "country": "AT",
+    "industry": "Baustoffe",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Generali Austria AG",
+    "career_url": "https://karriere.generali.at",
+    "country": "AT",
+    "industry": "Versicherung",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Greiner AG",
+    "career_url": "https://www.greiner.at/de/karriere/offene-stellen",
+    "country": "AT",
+    "industry": "Packaging",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Greiner Packaging",
+    "career_url": "https://jobs.greiner.com",
+    "country": "AT",
+    "industry": "Packaging",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Holcim",
+    "career_url": "https://www.holcim.com/careers",
+    "country": "CH",
+    "industry": "Baustoffe",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Infineon Technologies Austria",
+    "career_url": "https://jobs.infineon.com",
+    "country": "AT",
+    "industry": "Halbleiter",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "International Paper / DS Smith",
+    "career_url": "https://jobs.internationalpaper.com",
+    "country": "AT",
+    "industry": "Packaging",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "KPMG Austria",
+    "career_url": "https://www.kpmg.at/jobs",
+    "country": "AT",
+    "industry": "Consulting",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "KTM AG",
+    "career_url": "https://jobs.ktm.com",
+    "country": "AT",
+    "industry": "Automotive",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Kapsch Group",
+    "career_url": "https://jobs.kapsch.net",
+    "country": "AT",
+    "industry": "Technologie",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Knauf Group",
+    "career_url": "https://career.knauf.com",
+    "country": "DE",
+    "industry": "Baustoffe",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Lenzing AG",
+    "career_url": "https://www.lenzing.com/karriere/offene-positionen",
+    "country": "AT",
+    "industry": "Chemie/Textil",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Magenta Telekom",
+    "career_url": "https://www.magenta.at/karriere",
+    "country": "AT",
+    "industry": "Telekommunikation",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Miba AG",
+    "career_url": "https://jobs.miba.com",
+    "country": "AT",
+    "industry": "Industrie",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Mondi Group",
+    "career_url": "https://careers.mondigroup.com",
+    "country": "AT",
+    "industry": "Packaging",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "OMV AG",
+    "career_url": "https://careers.omv.com/search-jobs/",
+    "country": "AT",
+    "industry": "Energie",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Porr AG",
+    "career_url": "https://jobs.porr-group.com",
+    "country": "AT",
+    "industry": "Bau",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "PwC Austria",
+    "career_url": "https://careers.pwc.com/gb/en/jobs",
+    "country": "AT",
+    "industry": "Consulting",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "RHI Magnesita",
+    "career_url": "https://careers.rhimagnesita.com/jobs",
+    "country": "AT",
+    "industry": "Industrie",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Raiffeisen Bank International",
+    "career_url": "https://jobs.rbinternational.com/search/jobs",
+    "country": "AT",
+    "industry": "Finanzdienstleistungen",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Red Bull GmbH",
+    "career_url": "https://jobs.redbull.com",
+    "country": "AT",
+    "industry": "FMCG",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Schoeller-Bleckmann",
+    "career_url": "https://www.sbo.at/careers",
+    "country": "AT",
+    "industry": "Industrie",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Sika",
+    "career_url": "https://career.sika.com",
+    "country": "CH",
+    "industry": "Baustoffe",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Smurfit Westrock",
+    "career_url": "https://careers.smartrecruiters.com/SmuritWestrock",
+    "country": "AT",
+    "industry": "Packaging",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Strabag SE",
+    "career_url": "https://karriere.strabag.com",
+    "country": "AT",
+    "industry": "Bau",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Tetra Pak",
+    "career_url": "https://jobs.tetrapak.com/search/?location=Austria",
+    "country": "AT",
+    "industry": "Packaging",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Teufelberger",
+    "career_url": "https://www.teufelberger.com/de/karriere/offene-stellen",
+    "country": "AT",
+    "industry": "Industrie",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "UNIQA Insurance Group",
+    "career_url": "https://www.uniqa.at/jobs",
+    "country": "AT",
+    "industry": "Versicherung",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "UniCredit Bank Austria",
+    "career_url": "https://www.unicredit.eu/jobs",
+    "country": "AT",
+    "industry": "Finanzdienstleistungen",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Vetropack Group",
+    "career_url": "https://jobs.vetropack.com",
+    "country": "AT",
+    "industry": "Glas/Packaging",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Vienna Insurance Group",
+    "career_url": "https://www.vig.com/karriere",
+    "country": "AT",
+    "industry": "Versicherung",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Wien Energie GmbH",
+    "career_url": "https://www.wien-energie.at/jobs",
+    "country": "AT",
+    "industry": "Energie",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Wienerberger AG",
+    "career_url": "https://karriere.wienerberger.com",
+    "country": "AT",
+    "industry": "Baustoffe",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "voestalpine AG",
+    "career_url": "https://jobs.voestalpine.com",
+    "country": "AT",
+    "industry": "Industrie/Stahl",
+    "priority": 10,
+    "source": "Nukleus"
+  },
+  {
+    "company_name": "Österreichische Post AG",
+    "career_url": "https://jobs.post.at",
+    "country": "AT",
+    "industry": "Logistik",
+    "priority": 10,
+    "source": "Nukleus"
+  }
+];
+
+  let inserted = 0, skipped = 0;
+  for (const t of NUKLEUS) {
+    // Prüfen ob bereits vorhanden
+    const existing = await sbSelect('career_targets',
+      `company_name=eq.${encodeURIComponent(t.company_name)}&active=eq.true`
+    );
+    if (existing.length > 0) {
+      // URL aktualisieren falls leer
+      if (!existing[0].career_url && t.career_url) {
+        await sbUpdate('career_targets', `id=eq.${existing[0].id}`, {
+          career_url: t.career_url, industry: t.industry, priority: 10, source: 'Nukleus'
+        });
+      }
+      skipped++;
+    } else {
+      await sbInsert('career_targets', {
+        ...t,
+        active: true,
+        internal_id: 'NUK-' + t.company_name.substring(0,8).replace(/\s/g,'').toUpperCase()
+      });
+      inserted++;
+    }
+  }
+  return res.json({ total: NUKLEUS.length, inserted, skipped, message: 'Nukleus importiert' });
+}
+
+// ── Get HR Contacts ───────────────────────────────────────────────────────────
+async function getHrContacts(req, res) {
+  const contacts = await sbSelect('contacts',
+    `company_id=is.null&select=location,full_name,email,role&limit=500`
+  );
+  return res.json(contacts);
+}
+
+// ── Generate Brief ────────────────────────────────────────────────────────────
+async function generateBrief(req, res) {
+  const { company, title, department, level, hr_name, hr_email } = req.body || {};
+  if (!company || !title) return res.status(400).json({ error: 'company und title erforderlich' });
+
+  const hrText = hr_name
+    ? `HR-Kontakt: ${hr_name}${hr_email ? ', ' + hr_email : ''}`
+    : 'Kein HR-Kontakt bekannt';
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01'
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 600,
+      system: `Du bist ein erfahrener Executive Search Consultant bei Signium Austria (Stein & Partner GmbH).
+Schreibe präzise, professionelle Erstkontakt-E-Mails auf Deutsch für Führungspositionen.
+Signium USP: 30+ Jahre Erfahrung, eigene Büros in DACH und CEE, 1000+ abgeschlossene Mandate.
+Kein Marketing-Sprech. Direkt, substanziell, auf den Punkt. Kein Betreff, nur der E-Mail-Text.`,
+      messages: [{
+        role: 'user',
+        content: `Schreibe einen kurzen, professionellen Erstkontakt-Brief (E-Mail) für folgende offene Position:
+
+Unternehmen: ${company}
+Position: ${title}
+Bereich: ${department || 'unbekannt'}
+Level: ${level}
+${hrText}
+
+Positioniere Signium Austria als idealen Partner für die Besetzung dieser Führungsposition.
+Brief auf max. 150 Wörter. Professionell, nicht werblich.`
+      }]
+    })
+  });
+
+  const data = await response.json();
+  const brief = data.content?.[0]?.text || 'Fehler beim Generieren.';
+  return res.json({ brief });
+}
+
+// ── Upload Contacts (UPSERT) ──────────────────────────────────────────────────
+async function uploadContacts(req, res) {
+  const contacts = req.body?.contacts;
+  if (!Array.isArray(contacts) || !contacts.length)
+    return res.status(400).json({ error: 'contacts array fehlt' });
+
+  let upserted = 0, errors = 0;
+  for (const c of contacts) {
+    if (!c.email || !c.full_name) continue;
+    try {
+      // UPSERT via Supabase: on conflict update
+      const r = await fetch(
+        `${SUPABASE_URL}/rest/v1/contacts`,
+        {
+          method: 'POST',
+          headers: {
+            ...sbHeaders(),
+            'Prefer': 'resolution=merge-duplicates,return=minimal'
+          },
+          body: JSON.stringify({
+            full_name:      c.full_name,
+            role:           c.role || null,
+            email:          c.email,
+            location:       c.location || null,
+            source:         c.source || 'CSV-Import',
+            verified:       false,
+            do_not_contact: false
+          })
+        }
+      );
+      if (r.ok) upserted++;
+      else { errors++; }
+    } catch(e) { errors++; }
+  }
+  return res.json({ total: contacts.length, upserted, errors });
+}
+
+// ── Add Target ────────────────────────────────────────────────────────────────
+async function addTarget(req, res) {
+  const body = req.body || {};
+  if (!body.company_name) return res.status(400).json({ error: 'company_name fehlt' });
+  const result = await sbInsert('career_targets', { ...body, active: true });
+  return res.json(result || { ok: true });
+}
+
+// ── Delete Target ─────────────────────────────────────────────────────────────
+async function deleteTarget(req, res) {
+  const { target_id } = req.query;
+  if (!target_id) return res.status(400).json({ error: 'target_id fehlt' });
+  await sbDelete('career_targets', `id=eq.${target_id}`);
+  return res.json({ ok: true });
 }
