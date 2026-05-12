@@ -1225,12 +1225,48 @@ async function triggerScan() {
   const btn = document.querySelector('.nav-scan-btn');
   btn.textContent = 'Scan läuft…';
   btn.disabled = true;
+  await runScanLoop(btn, 'Scan starten');
+}
+
+async function scanAllTargets() {
+  const btn = document.getElementById('scanAllBtn');
+  if (btn) { btn.textContent = 'Scan läuft…'; btn.disabled = true; }
+  await runScanLoop(btn, '▷ Alle Firmen scannen');
+}
+
+async function runScanLoop(btn, resetLabel) {
   try {
-    await fetch(`${API_BASE}?action=scan-all&limit=3`);
-    showToast('Scan gestartet');
-    setTimeout(() => { loadStats(); loadVacancies(); }, 6000);
-  } catch(e) { showToast('Fehler beim Scan'); }
-  setTimeout(() => { btn.textContent = 'Scan starten'; btn.disabled = false; }, 10000);
+    // Alle Nukleus-Targets (priority=10) laden
+    const r = await fetch(`${API_BASE}?action=get-targets&limit=200`);
+    const d = await r.json();
+    const targets = (d.targets || []).filter(t => t.career_url);
+
+    if (!targets.length) { showToast('Keine Targets gefunden'); return; }
+
+    showToast(`Scanne ${targets.length} Firmen…`);
+    let scanned = 0, newVac = 0;
+
+    for (const t of targets) {
+      scanned++;
+      if (btn) btn.textContent = `${scanned}/${targets.length}: ${t.company_name.substring(0,20)}…`;
+      try {
+        const r2 = await fetch(`${API_BASE}?action=scan-one&target_id=${t.id}`);
+        const d2 = await r2.json();
+        newVac += d2.new_vacancies || 0;
+      } catch(e) { /* weiter */ }
+      await new Promise(r => setTimeout(r, 300));
+    }
+
+    showToast(`✓ ${scanned} Firmen · ${newVac} neue Vakanzen`);
+    loadStats();
+    loadVacancies();
+  } catch(e) {
+    showToast('Fehler: ' + e.message);
+  }
+  if (btn) {
+    btn.textContent = resetLabel;
+    btn.disabled = false;
+  }
 }
 
 // INIT
