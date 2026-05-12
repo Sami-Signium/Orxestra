@@ -1,4 +1,3 @@
-
 // api/scan.js
 // ORXESTRA Career Scanner v1
 // Eigenstaendiger Career Intelligence Scanner fuer oesterreichische Grossunternehmen
