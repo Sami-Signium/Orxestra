@@ -627,10 +627,11 @@ async function importHrContacts(req, res) {
 }
 
 
-// ── Test Scan URLs (Batch) ────────────────────────────────────────────────────
+// ── Test Scan URLs (Auto-Chain) ───────────────────────────────────────────────
 async function testScanUrls(req, res) {
   const offset = parseInt(req.query.offset || '0');
-  const batchSize = 50;
+  const batchSize = 20;
+  const host = req.headers.host || 'orxestra-scanner.vercel.app';
 
   const targets = await sbSelect('career_targets',
     `active=eq.true&career_url=neq.&select=id,company_name,career_url,notes&order=id&limit=${batchSize}&offset=${offset}`
@@ -641,36 +642,38 @@ async function testScanUrls(req, res) {
     return u.length > 10 && !u.includes('Careers"') && !u.includes('myworkdayjobs.com/fileadmin') && !u.includes('.wd3.mywork');
   });
 
-  const results = { ok: [], fail: [], total: valid.length, offset, next_offset: offset + batchSize };
+  // Sofort antworten damit Vercel nicht wartet
+  if (offset === 0) {
+    res.json({ status: 'gestartet', total_batch: Math.ceil(460 / batchSize), message: 'Läuft im Hintergrund. Ergebnis in ~5 Min abrufbar unter scan-report' });
+  }
 
-  for (const t of valid) {
+  // Parallel testen
+  const tests = valid.map(async t => {
     try {
       const resp = await fetch(t.career_url, {
-        method: 'GET',
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; OrxestraBot/1.0)' },
-        signal: AbortSignal.timeout(8000)
+        method: 'HEAD',
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        signal: AbortSignal.timeout(5000)
       });
-      const text = await resp.text();
-      const hasContent = text.length > 500 &&
-        (text.toLowerCase().includes('job') || text.toLowerCase().includes('stelle') ||
-         text.toLowerCase().includes('karriere') || text.toLowerCase().includes('position'));
-
-      const status = (resp.ok && hasContent) ? 'SCAN:OK' : 'SCAN:FAIL';
-      results[resp.ok && hasContent ? 'ok' : 'fail'].push(t.company_name);
-
-      // Notes updaten - alten SCAN Status ersetzen
+      const status = resp.ok ? 'SCAN:OK' : 'SCAN:FAIL';
       const oldNotes = (t.notes || '').replace(/SCAN:(OK|FAIL)/g, '').trim().replace(/\s*\|\s*$/, '');
-      const newNotes = oldNotes ? `${oldNotes} | ${status}` : status;
-      await sbUpdate('career_targets', `id=eq.${t.id}`, { notes: newNotes });
-
+      await sbUpdate('career_targets', `id=eq.${t.id}`, { notes: oldNotes ? `${oldNotes} | ${status}` : status });
+      return resp.ok;
     } catch(e) {
-      results.fail.push(t.company_name);
       const oldNotes = (t.notes || '').replace(/SCAN:(OK|FAIL)/g, '').trim().replace(/\s*\|\s*$/, '');
-      await sbUpdate('career_targets', `id=eq.${t.id}`, {
-        notes: oldNotes ? `${oldNotes} | SCAN:FAIL` : 'SCAN:FAIL'
-      });
+      await sbUpdate('career_targets', `id=eq.${t.id}`, { notes: oldNotes ? `${oldNotes} | SCAN:FAIL` : 'SCAN:FAIL' });
+      return false;
     }
+  });
+
+  await Promise.allSettled(tests);
+
+  // Nächsten Batch automatisch triggern wenn noch Daten da sind
+  if (valid.length === batchSize) {
+    const nextUrl = `https://${host}/api/scan?action=test-scan-urls&offset=${offset + batchSize}`;
+    fetch(nextUrl, { method: 'GET' }).catch(() => {});
   }
+}
 
   return res.json(results);
 }
