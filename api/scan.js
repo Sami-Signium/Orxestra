@@ -95,6 +95,7 @@ export default async function handler(req, res) {
     if (action === 'delete-hr')           return await deleteHrContacts(req, res);
     if (action === 'test-scan-urls')      return await testScanUrls(req, res);
     if (action === 'scan-report')         return await scanReport(req, res);
+    if (action === 'test-gruppe-a')         return await testGruppeA(req, res);
     return res.status(400).json({ error: 'Unbekannte action. Verfuegbar: find-urls, scan-one, scan-all, get-vacancies, get-targets, get-stats, test' });
   } catch (err) {
     console.error('[orxestra]', err);
@@ -739,5 +740,113 @@ async function scanReport(req, res) {
     gruppe_a: gruppeA,
     gruppe_b: gruppeB,
     gruppe_c: gruppeC
+  });
+}
+
+// ── Test Gruppe A URLs ────────────────────────────────────────────────────────
+async function testGruppeA(req, res) {
+  const GRUPPE_A_URLS = [
+    {firma:"ALPLA Group",url:"https://alpla.jobs.personio.de/"},
+    {firma:"AMS OSRAM AG",url:"https://jobs.ams-osram.com/search/jobs"},
+    {firma:"AVL List GmbH",url:"https://jobs.avl.com"},
+    {firma:"Allianz Österreich",url:"https://www.allianz.at/karriere"},
+    {firma:"Amcor (inkl. Berry)",url:"https://www.amcor.com/careers"},
+    {firma:"Andritz AG",url:"https://careers.andritz.com"},
+    {firma:"Ardagh Group",url:"https://careers.ardaghgroup.com/jobs"},
+    {firma:"BASF",url:"https://karriere.basf.com"},
+    {firma:"BILLA AG",url:"https://jobs.rewe-group.com/jobs?company=Billa"},
+    {firma:"Beiersdorf CEE",url:"https://careers.beiersdorf.com/"},
+    {firma:"Blum GmbH",url:"https://www.blum.com/en/about-blum/careers/job-openings"},
+    {firma:"Boehringer Ingelheim RCV",url:"https://careers.boehringer-ingelheim.com/"},
+    {firma:"Boston Consulting Group Austria",url:"https://jobs.bcg.com"},
+    {firma:"Brau Union Österreich AG",url:"https://www.brauunion.at/karriere"},
+    {firma:"CA Immo AG",url:"https://www.caimmo.com/jobs"},
+    {firma:"Coveris Group",url:"https://www.coveris.com/careers"},
+    {firma:"Crown Holdings",url:"https://www.crown.com/de/karriere"},
+    {firma:"Deloitte Austria",url:"https://apply.deloitte.com/careers"},
+    {firma:"Doka Group",url:"https://www.doka.com/jobs"},
+    {firma:"EVN AG",url:"https://karriere.evn.at"},
+    {firma:"EY Austria",url:"https://careers.ey.com/"},
+    {firma:"Energie Steiermark AG",url:"https://www.energie-steiermark.at/jobs"},
+    {firma:"Engel Austria GmbH",url:"https://jobs.engelglobal.com"},
+    {firma:"Erste Group Bank AG",url:"https://www.erstegroup.com/karriere"},
+    {firma:"FACC AG",url:"https://jobs.facc.com"},
+    {firma:"Frequentis AG",url:"https://jobs.frequentis.com"},
+    {firma:"Geberit",url:"https://jobs.geberit.com"},
+    {firma:"Generali Austria AG",url:"https://karriere.generali.at"},
+    {firma:"Greiner AG",url:"https://www.greiner.at/de/karriere/offene-stellen"},
+    {firma:"Greiner Packaging",url:"https://jobs.greiner.com"},
+    {firma:"Heineken CEE",url:"https://www.heineken.com/jobs"},
+    {firma:"Holcim",url:"https://www.holcim.com/careers"},
+    {firma:"Infineon Technologies Austria",url:"https://jobs.infineon.com"},
+    {firma:"International Paper / DS Smith",url:"https://jobs.internationalpaper.com"},
+    {firma:"KPMG Austria",url:"https://www.kpmg.at/jobs"},
+    {firma:"KTM AG",url:"https://jobs.ktm.com"},
+    {firma:"Kapsch Group",url:"https://jobs.kapsch.net"},
+    {firma:"Knauf Group",url:"https://career.knauf.com"},
+    {firma:"Lenzing AG",url:"https://www.lenzing.com/karriere/offene-positionen"},
+    {firma:"Magenta Telekom",url:"https://www.magenta.at/karriere"},
+    {firma:"Miba AG",url:"https://jobs.miba.com"},
+    {firma:"Mondi Group",url:"https://careers.mondigroup.com"},
+    {firma:"OMV AG",url:"https://careers.omv.com/search-jobs/"},
+    {firma:"Porr AG",url:"https://jobs.porr-group.com"},
+    {firma:"PwC Austria",url:"https://careers.pwc.com/gb/en/jobs"},
+    {firma:"RHI Magnesita",url:"https://careers.rhimagnesita.com/jobs"},
+    {firma:"Raiffeisen Bank International",url:"https://jobs.rbinternational.com/search/jobs"},
+    {firma:"Red Bull GmbH",url:"https://jobs.redbull.com"},
+    {firma:"SPAR Österreich",url:"https://www.spar.at/karriere/jobs"},
+    {firma:"Schoeller-Bleckmann",url:"https://www.sbo.at/careers"},
+    {firma:"Sika",url:"https://career.sika.com"},
+    {firma:"Smurfit Westrock",url:"https://careers.smartrecruiters.com/SmuritWestrock"},
+    {firma:"Strabag SE",url:"https://karriere.strabag.com"},
+    {firma:"Tetra Pak",url:"https://jobs.tetrapak.com/search/?location=Austria"},
+    {firma:"Teufelberger",url:"https://www.teufelberger.com/de/karriere/offene-stellen"},
+    {firma:"UNIQA Insurance Group",url:"https://www.uniqa.at/jobs"},
+    {firma:"UniCredit Bank Austria",url:"https://www.unicredit.eu/jobs"},
+    {firma:"Vetropack Group",url:"https://jobs.vetropack.com"},
+    {firma:"Vienna Insurance Group",url:"https://www.vig.com/karriere"},
+    {firma:"Wien Energie GmbH",url:"https://www.wien-energie.at/jobs"},
+    {firma:"Wienerberger AG",url:"https://karriere.wienerberger.com"},
+    {firma:"voestalpine AG",url:"https://jobs.voestalpine.com"},
+    {firma:"ÖBB Holding AG",url:"https://jobs.oebb.at"},
+    {firma:"Österreichische Post AG",url:"https://jobs.post.at"},
+  ];
+
+  // Parallel testen
+  const tests = GRUPPE_A_URLS.map(async ({firma, url}) => {
+    try {
+      const resp = await fetch(url, {
+        method: 'GET',
+        headers: {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'},
+        signal: AbortSignal.timeout(8000)
+      });
+      const text = await resp.text();
+      const hasJobs = text.length > 1000 && (
+        text.toLowerCase().includes('job') ||
+        text.toLowerCase().includes('stelle') ||
+        text.toLowerCase().includes('position') ||
+        text.toLowerCase().includes('karriere') ||
+        text.toLowerCase().includes('vacancy')
+      );
+      return {firma, url, status: resp.status, ok: resp.ok && hasJobs, reason: resp.ok && hasJobs ? 'OK' : `status=${resp.status}, hasJobs=${hasJobs}`};
+    } catch(e) {
+      return {firma, url, status: 0, ok: false, reason: e.message.substring(0,60)};
+    }
+  });
+
+  const results = await Promise.allSettled(tests);
+  const ok = [], fail = [];
+  for (const r of results) {
+    const val = r.status === 'fulfilled' ? r.value : {firma:'?', url:'?', ok:false, reason:'promise rejected'};
+    if (val.ok) ok.push(val);
+    else fail.push(val);
+  }
+
+  return res.json({
+    gesamt: GRUPPE_A_URLS.length,
+    erreichbar: ok.length,
+    nicht_erreichbar: fail.length,
+    erreichbar_liste: ok.map(r => ({firma: r.firma, url: r.url})),
+    nicht_erreichbar_liste: fail.map(r => ({firma: r.firma, url: r.url, grund: r.reason}))
   });
 }
