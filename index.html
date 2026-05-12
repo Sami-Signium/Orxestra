@@ -853,12 +853,7 @@ async function loadHrContacts(vacancies) {
       // Supabase OR query über company_name
       const nameList = companyNames.map(n => `company_name.ilike.*${encodeURIComponent(n)}*`).join(',');
       // Einfacherer Ansatz: alle Kontakte laden und client-side matchen
-      const resp = await fetch(`${SUPABASE_URL}/rest/v1/contacts?select=location,full_name,email,role&company_id=is.null&limit=500`, {
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`
-        }
-      });
+      const resp = await fetch(`${API_BASE}?action=get-hr-contacts`);
       if (resp.ok) {
         const contacts = await resp.json();
         // Cache aufbauen: location (= Firmenname) → best contact
@@ -1086,33 +1081,20 @@ async function generateBrief() {
     : 'Kein HR-Kontakt bekannt';
 
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    const resp = await fetch(`${API_BASE}?action=generate-brief`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        system: `Du bist ein erfahrener Executive Search Consultant bei Signium Austria (Stein & Partner GmbH). 
-Schreibe präzise, professionelle Erstkontakt-E-Mails auf Deutsch für Führungspositionen.
-Signium USP: 30+ Jahre Erfahrung, eigene Büros in DACH und CEE, 1000+ abgeschlossene Mandate.
-Kein Marketing-Sprech. Direkt, substanziell, auf den Punkt. Kein Betreff, nur der E-Mail-Text.`,
-        messages: [{
-          role: 'user',
-          content: `Schreibe einen kurzen, professionellen Erstkontakt-Brief (E-Mail) für folgende offene Position:
-
-Unternehmen: ${v.company_name}
-Position: ${v.job_title}
-Bereich: ${v.department || 'unbekannt'}
-Level: ${v.job_level}
-${hrText}
-
-Positioniere Signium Austria als idealen Partner für die Besetzung dieser Führungsposition.
-Brief auf max. 150 Wörter. Professionell, nicht werblich.`
-        }]
+        company: v.company_name,
+        title: v.job_title,
+        department: v.department || '',
+        level: v.job_level,
+        hr_name: hrInfo?.name || '',
+        hr_email: hrInfo?.email || ''
       })
     });
     const d = await resp.json();
-    txt.value = d.content?.[0]?.text || 'Fehler beim Generieren.';
+    txt.value = d.brief || d.error || 'Fehler beim Generieren.';
   } catch(e) {
     txt.value = 'Fehler: ' + e.message;
   }
