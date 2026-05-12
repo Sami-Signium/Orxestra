@@ -1,3 +1,4 @@
+
 // api/scan.js
 // ORXESTRA Career Scanner v1
 // Eigenstaendiger Career Intelligence Scanner fuer oesterreichische Grossunternehmen
@@ -444,6 +445,51 @@ async function testBrowserless(req, res) {
   }
 }
 
+// ── Browserless Fetch speziell fuer Job-Descriptions (8 Sek. Wartezeit) ──────
+async function fetchJobPageSlow(pageUrl) {
+  if (!BROWSERLESS_KEY) throw new Error('BROWSERLESS_KEY fehlt');
+
+  const baseOrigin = (() => {
+    try { return new URL(pageUrl).origin; } catch(e) { return ''; }
+  })();
+
+  const fn = `
+    export default async function ({ page }) {
+      await page.setRequestInterception(true);
+      page.on('request', (req) => {
+        const u = req.url();
+        if (u.includes('cookiebot.com') || u.includes('cookieconsent') || u.includes('consent.')) {
+          req.abort();
+        } else {
+          req.continue();
+        }
+      });
+
+      await page.goto('${pageUrl}', { waitUntil: 'networkidle2', timeout: 30000 });
+      // 8 Sekunden warten damit JavaScript die Stellenbeschreibung vollstaendig laedt
+      await new Promise(r => setTimeout(r, 8000));
+
+      const bodyText = await page.evaluate(() => document.body?.innerText || '');
+      return { bodyText };
+    }
+  `;
+
+  const r = await fetch(
+    `https://production-sfo.browserless.io/function?token=${BROWSERLESS_KEY}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: fn, context: {} })
+    }
+  );
+
+  if (!r.ok) throw new Error(`Browserless error ${r.status}`);
+  const data = await r.json();
+  const text = (data?.bodyText || data?.data?.bodyText || '').replace(/\s+/g, ' ').trim();
+  if (!text) throw new Error('Browserless: leere Antwort');
+  return text;
+}
+
 // ── Get Job Description (on demand) ──────────────────────────────────────────
 async function getJobDescription(req, res) {
   const { vacancy_id, job_url } = req.method === 'POST' ? req.body : req.query;
@@ -470,10 +516,10 @@ async function getJobDescription(req, res) {
       }
     } catch(e) { /* HTTP fetch fehlgeschlagen — Browserless als Fallback */ }
 
-    // Schritt 2: Browserless als Fallback wenn Text zu kurz
+    // Schritt 2: Browserless als Fallback wenn Text zu kurz — mit 8 Sek. Wartezeit
     if (text.length < 200) {
       try {
-        text = await fetchWithBrowserless(job_url);
+        text = await fetchJobPageSlow(job_url);
       } catch(e) {
         return res.status(500).json({ error: 'Seite konnte nicht geladen werden: ' + e.message });
       }
