@@ -48,29 +48,31 @@ async function sbUpdate(table, filter, body) {
   return true;
 }
 
-const LEADERSHIP_SYSTEM_PROMPT = `Du bist ein Executive Search Spezialist. Analysiere den Text einer Karriereseite und extrahiere NUR Leitungspositionen.
+const LEADERSHIP_SYSTEM_PROMPT = `Du bist ein Executive Search Spezialist. Analysiere den Text einer Karriereseite und extrahiere NUR aktiv ausgeschriebene Leitungspositionen.
 
-EINSCHLIESSEN:
+KRITISCHE REGEL: Nur Positionen ausgeben die AKTIV AUSGESCHRIEBEN sind — d.h. es gibt einen konkreten Bewerbungslink oder Button. Erwaehnungen von bestehenden Fuehrungskraeften, Teamseiten, Pressetexte oder Unternehmensvorstellungen sind KEINE offenen Stellen.
+
+EINSCHLIESSEN (nur wenn aktiv ausgeschrieben):
 - C-Level: CEO, CFO, COO, CTO, CHRO, CMO, CDO, CRO, CPO, CIO, CSO
 - Geschaeftsfuehrung: Geschaeftsfuehrer/in, Managing Director, Generaldirektor, Vorstand
 - Bereichsleitung: Head of [Bereich], Director, Vice President, Senior Vice President
 - Abteilungsleitung: Leiter/in [Bereich] (bei Grossunternehmen)
 - Country Manager, Regional Director, Market Lead
-- General Counsel, Head of Strategy, Head of M&A
-- Alle sonstigen Leitungsfunktionen mit Fuehrungsverantwortung
 
 AUSSCHLIESSEN:
+- Positionen ohne direkten Bewerbungslink
+- Bestehende Stelleninhaber (z.B. "Unser CEO ist...")
 - Team Lead / Gruppenleiter (operative Ebene)
 - Sachbearbeiter, Specialist, Analyst, Coordinator
 - Junior, Trainee, Werkstudent, Praktikant
-- Techniker, Meister, Fachkraft (ohne Leitungsfunktion)
+- Positionen aus anderen Laendern wenn klar erkennbar (z.B. "Texas", "Vietnam", "Spain")
 
 Du bekommst den Seitentext UND eine Liste von Links (Text → URL) von der Karriereseite.
-Versuche fuer jede gefundene Position den passenden direkten Link aus der Linkliste zuzuordnen.
-Ein Link passt wenn der Linktext den Jobtitel enthaelt oder sehr aehnlich ist.
+Ordne jeder Position den passenden direkten Bewerbungslink zu.
+WICHTIG: Wenn kein passender Link gefunden wird — Position NICHT ausgeben.
 
 Antworte AUSSCHLIESSLICH mit einem JSON-Array. Kein Text davor oder danach. Keine Erklaerung. Keine Markdown.
-Format: [{"title":"Positionstitel","department":"Bereich oder null","level":"C-Level|Geschaeftsfuehrung|Bereichsleitung|Abteilungsleitung|Sonstige Leitungsfunktion","job_url":"direkte URL zur Stelle oder null"}]
+Format: [{"title":"Positionstitel","department":"Bereich oder null","level":"C-Level|Geschaeftsfuehrung|Bereichsleitung|Abteilungsleitung|Sonstige Leitungsfunktion","job_url":"direkte URL zur Stelle — PFLICHTFELD"}]
 Wenn keine passenden Positionen: antworte mit []`;
 
 // ── Main Handler ──────────────────────────────────────────────────────────────
@@ -314,8 +316,11 @@ async function scanTarget(target) {
     const existingTitles = new Set(existing.map(e => e.job_title.toLowerCase().trim()));
     const foundTitles    = new Set(jobs.map(j => j.title.toLowerCase().trim()));
 
+    // Nur Jobs MIT direktem Bewerbungslink speichern
+    const validJobs = jobs.filter(j => j.job_url && j.job_url.startsWith('http'));
+
     let newCount = 0;
-    for (const job of jobs) {
+    for (const job of validJobs) {
       if (!existingTitles.has(job.title.toLowerCase().trim())) {
         try {
           await sbInsert('career_vacancies', {
