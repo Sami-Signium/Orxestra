@@ -101,6 +101,7 @@ export default async function handler(req, res) {
     if (action === 'import-nukleus')        return await importNukleus(req, res);
     if (action === 'get-hr-contacts')       return await getHrContacts(req, res);
     if (action === 'upload-contacts')        return await uploadContacts(req, res);
+    if (action === 'upload-targets')         return await uploadTargets(req, res);
     if (action === 'add-target')             return await addTarget(req, res);
     if (action === 'delete-target')          return await deleteTarget(req, res);
     if (action === 'generate-brief')        return await generateBrief(req, res);
@@ -1454,4 +1455,56 @@ async function deleteTarget(req, res) {
   if (!target_id) return res.status(400).json({ error: 'target_id fehlt' });
   await sbDelete('career_targets', `id=eq.${target_id}`);
   return res.json({ ok: true });
+}
+
+// ── Upload Targets (Masterliste) ──────────────────────────────────────────────
+async function uploadTargets(req, res) {
+  const { targets, replace = false } = req.body || {};
+  if (!Array.isArray(targets) || !targets.length)
+    return res.status(400).json({ error: 'targets array fehlt' });
+
+  // Schritt 1: Alle bestehenden auf inactive setzen wenn replace=true
+  if (replace) {
+    await sbUpdate('career_targets', 'active=eq.true', { active: false });
+  }
+
+  let upserted = 0, errors = 0;
+  for (const t of targets) {
+    if (!t.company_name) continue;
+    try {
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/career_targets`, {
+        method: 'POST',
+        headers: {
+          ...sbHeaders(),
+          'Prefer': 'resolution=merge-duplicates,return=minimal'
+        },
+        body: JSON.stringify({
+          company_name: t.company_name,
+          career_url:   t.career_url   || null,
+          country:      t.country      || 'AT',
+          industry:     t.industry     || null,
+          hr_name:      t.hr_name      || null,
+          hr_titel:     t.hr_titel     || null,
+          hr_email:     t.hr_email     || null,
+          priority:     t.priority     || 10,
+          source:       t.source       || 'Upload',
+          active:       true
+        })
+      });
+      if (r.ok) upserted++;
+      else { errors++; console.error(await r.text()); }
+    } catch(e) { errors++; }
+  }
+
+  // Schritt 2: Vakanzen von inaktiven Firmen löschen
+  if (replace) {
+    await fetch(`${SUPABASE_URL}/rest/v1/career_vacancies?company_name=not.in.(${
+      targets.map(t => `"${t.company_name}"`).join(',')
+    })`, {
+      method: 'DELETE',
+      headers: sbHeaders()
+    });
+  }
+
+  return res.json({ total: targets.length, upserted, errors });
 }

@@ -961,39 +961,21 @@ async function loadHrContacts(vacancies) {
       // Supabase OR query über company_name
       const nameList = companyNames.map(n => `company_name.ilike.*${encodeURIComponent(n)}*`).join(',');
       // Einfacherer Ansatz: alle Kontakte laden und client-side matchen
-      const resp = await fetch(`${API_BASE}?action=get-hr-contacts`);
+      // HR-Kontakte direkt aus career_targets laden (Masterliste)
+      const resp = await fetch(`${API_BASE}?action=get-targets&limit=500`);
       if (resp.ok) {
-        const contacts = await resp.json();
-        // Cache aufbauen: location (= Firmenname) → best contact
-        const tempCache = {};
-        for (const c of contacts) {
-          const key = (c.location || '').toLowerCase().trim();
+        const d = await resp.json();
+        const targets = d.targets || [];
+        for (const t of targets) {
+          const key = (t.company_name || '').toLowerCase().trim();
           if (!key) continue;
-          const hasEmail = !!(c.email && c.email.trim());
-          const hasName  = !!(c.full_name && c.full_name !== '(unbekannt)');
-          if (!tempCache[key] || (hasEmail && !tempCache[key].hasEmail)) {
-            tempCache[key] = {
-              name: c.full_name || '',
-              email: c.email || '',
-              hasEmail,
-              hasName
-            };
-          }
-        }
-        // Vacancy company names mappen
-        for (const company of companyNames) {
-          const key = company.toLowerCase().trim();
-          let match = tempCache[key];
-          if (!match) {
-            for (const [k, v] of Object.entries(tempCache)) {
-              if (k.includes(key) || key.includes(k)) { match = v; break; }
-            }
-          }
-          if (match) {
-            hrContactCache[company] = match;
-          } else {
-            hrContactCache[company] = { hasEmail: false, hasName: false, name: '', email: '' };
-          }
+          hrContactCache[t.company_name] = {
+            name:     t.hr_name  || '',
+            email:    t.hr_email || '',
+            titel:    t.hr_titel || '',
+            hasEmail: !!(t.hr_email && t.hr_email.trim()),
+            hasName:  !!(t.hr_name  && t.hr_name.trim())
+          };
         }
       }
     } catch(e) {
@@ -1237,7 +1219,7 @@ async function scanAllTargets() {
 async function runScanLoop(btn, resetLabel) {
   try {
     // Alle Nukleus-Targets (priority=10) laden
-    const r = await fetch(`${API_BASE}?action=get-targets&limit=200`);
+    const r = await fetch(`${API_BASE}?action=get-targets&limit=200&priority=10`);
     const d = await r.json();
     const targets = (d.targets || []).filter(t => t.career_url);
 
@@ -1267,6 +1249,108 @@ async function runScanLoop(btn, resetLabel) {
     btn.textContent = resetLabel;
     btn.disabled = false;
   }
+}
+
+// ── FIRMEN UPLOAD (Masterliste) ───────────────────────────────────────────────
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('uploadZone').classList.remove('drag');
+  processFile(e.dataTransfer.files[0]);
+}
+function handleFileUpload(e) { processFile(e.target.files[0]); }
+
+async function processFile(file) {
+  if (!file) return;
+  const text = await file.text();
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  const sep = lines[0].includes(';') ? ';' : ',';
+  const hasHeader = lines[0].toLowerCase().includes('firma') || lines[0].toLowerCase().includes('nr') || lines[0].toLowerCase().includes('company');
+  const dataLines = hasHeader ? lines.slice(1) : lines;
+
+  const parsed = dataLines.map(line => {
+    const c = line.split(sep).map(x => x.trim().replace(/^"|"$/g,''));
+    // Format: Nr | Firma | Sektor | HR-Name | HR-Titel | Email | Email-Status | Career-URL
+    const firma  = c[1] || c[0] || '';
+    if (!firma) return null;
+    return {
+      company_name: firma,
+      career_url:   (c[7] || '').startsWith('http') ? c[7] : null,
+      industry:     c[2] || null,
+      hr_name:      c[3] || null,
+      hr_titel:     c[4] || null,
+      hr_email:     c[5] || null,
+      country:      'AT',
+      priority:     10,
+      source:       'Upload'
+    };
+  }).filter(r => r && r.company_name);
+
+  if (!parsed.length) { showToast('Keine gültigen Zeilen'); return; }
+
+  const prog = document.getElementById('importProgress');
+  const status = document.getElementById('importStatus');
+  const bar = document.getElementById('progressBar');
+  const log = document.getElementById('importLog');
+  prog.style.display = 'block';
+  log.innerHTML = '';
+  status.textContent = `Importiere ${parsed.length} Firmen…`;
+  bar.style.width = '20%';
+
+  try {
+    const r = await fetch(`${API_BASE}?action=upload-targets`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ targets: parsed, replace: true })
+    });
+    const d = await r.json();
+    bar.style.width = '100%';
+    status.textContent = `✓ ${d.upserted} importiert${d.errors ? ', ' + d.errors + ' Fehler' : ''}`;
+    log.innerHTML = parsed.map(t => `<div>✓ ${t.company_name}</div>`).join('');
+    showToast(`${d.upserted} Firmen importiert`);
+    await loadTargets();
+  } catch(e) {
+    status.textContent = 'Fehler: ' + e.message;
+  }
+  document.getElementById('csvFile').value = '';
+}
+
+// ── KONTAKTE UPLOAD ───────────────────────────────────────────────────────────
+function handleDropContacts(e) {
+  e.preventDefault();
+  document.getElementById('uploadZoneContacts').classList.remove('drag');
+  processContactsFile(e.dataTransfer.files[0]);
+}
+function handleContactsUpload(e) { processContactsFile(e.target.files[0]); }
+
+async function processContactsFile(file) {
+  if (!file) return;
+  const text = await file.text();
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  const sep = lines[0].includes(';') ? ';' : ',';
+  const dataLines = lines[0].toLowerCase().includes('firma') || lines[0].toLowerCase().includes('name') ? lines.slice(1) : lines;
+  const contacts = dataLines.map(line => {
+    const c = line.split(sep).map(x => x.trim().replace(/^"|"$/g,''));
+    return { location: c[0]||'', full_name: c[1]||'', role: c[2]||'', email: c[3]||'', source: 'CSV-Import' };
+  }).filter(r => r.full_name && r.email && r.email.includes('@'));
+  if (!contacts.length) { showToast('Keine gültigen Kontakte'); return; }
+
+  const prog = document.getElementById('importProgressContacts');
+  const status = document.getElementById('importStatusContacts');
+  const bar = document.getElementById('progressBarContacts');
+  prog.style.display = 'block';
+  status.textContent = `Importiere ${contacts.length} Kontakte…`;
+  bar.style.width = '30%';
+
+  try {
+    const r = await fetch(`${API_BASE}?action=upload-contacts`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({contacts})
+    });
+    const d = await r.json();
+    bar.style.width = '100%';
+    status.textContent = `✓ ${d.upserted} importiert${d.errors ? ', ' + d.errors + ' Fehler' : ''}`;
+    showToast(`${d.upserted} Kontakte importiert`);
+  } catch(e) { status.textContent = 'Fehler: ' + e.message; }
+  document.getElementById('csvContacts').value = '';
 }
 
 // INIT
