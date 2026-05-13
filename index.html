@@ -1203,6 +1203,89 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 2500);
 }
 
+// ── TAB NAVIGATION ────────────────────────────────────────────────────────────
+function showTab(tab) {
+  document.querySelectorAll('.tab-section').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav-links a').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  document.getElementById('nav-' + tab).classList.add('active');
+  if (tab === 'firmen') loadTargets();
+}
+
+// ── TARGETS ───────────────────────────────────────────────────────────────────
+let allTargets = [];
+
+async function loadTargets() {
+  try {
+    const r = await fetch(`${API_BASE}?action=get-targets&limit=500`);
+    const d = await r.json();
+    allTargets = d.targets || [];
+    renderTargets(allTargets);
+    document.getElementById('firmenCount').textContent =
+      `${allTargets.length} Firmen · ${allTargets.filter(t => t.career_url).length} mit Career-URL`;
+  } catch(e) {
+    document.getElementById('targetsBody').innerHTML =
+      `<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--muted)">Fehler: ${e.message}</td></tr>`;
+  }
+}
+
+function filterTargets() {
+  const q = document.getElementById('firmenSearch').value.toLowerCase();
+  renderTargets(allTargets.filter(t =>
+    (t.company_name||'').toLowerCase().includes(q) ||
+    (t.industry||'').toLowerCase().includes(q)
+  ));
+}
+
+function renderTargets(targets) {
+  if (!targets.length) {
+    document.getElementById('targetsBody').innerHTML =
+      '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--muted)">Keine Firmen.</td></tr>';
+    return;
+  }
+  const fmt = d => d ? new Date(d).toLocaleDateString('de-AT',{day:'2-digit',month:'2-digit',year:'2-digit'}) : '—';
+  document.getElementById('targetsBody').innerHTML = targets.map(t => `
+    <tr>
+      <td><div style="font-weight:500;font-size:11px">${t.company_name}</div></td>
+      <td style="font-size:11px;color:var(--muted)">${t.industry||'—'}</td>
+      <td style="font-size:11px;color:var(--muted)">${t.country||'—'}</td>
+      <td class="target-url">${t.career_url?`<a href="${t.career_url}" target="_blank">${t.career_url.replace('https://','').substring(0,35)}…</a>`:'—'}</td>
+      <td style="font-size:11px;color:var(--muted)">${t.hr_name||'—'}</td>
+      <td style="font-size:11px;color:var(--muted)">${fmt(t.last_scanned_at)}</td>
+      <td>${t.career_url?`<button class="scan-target-btn" onclick="scanOne(${t.id},'${t.company_name.replace(/'/g,"\\'")}',this)">Scan</button>`:''}</td>
+    </tr>`).join('');
+}
+
+async function addManualTarget() {
+  const firma = document.getElementById('newFirma').value.trim();
+  const url   = document.getElementById('newUrl').value.trim();
+  const land  = document.getElementById('newLand').value;
+  const branch= document.getElementById('newBranche').value.trim();
+  if (!firma||!url) { showToast('Firma und URL erforderlich'); return; }
+  try {
+    const r = await fetch(`${API_BASE}?action=add-target`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({company_name:firma,career_url:url,country:land,industry:branch||null,priority:10,source:'Manuell',active:true})
+    });
+    showToast(`${firma} hinzugefügt`);
+    document.getElementById('newFirma').value='';
+    document.getElementById('newUrl').value='';
+    document.getElementById('newBranche').value='';
+    await loadTargets();
+  } catch(e) { showToast('Fehler: '+e.message); }
+}
+
+async function scanOne(targetId, firma, btn) {
+  const orig = btn.textContent;
+  btn.textContent='…'; btn.disabled=true;
+  try {
+    const r = await fetch(`${API_BASE}?action=scan-one&target_id=${targetId}`);
+    const d = await r.json();
+    showToast(`${firma}: ${(d.new_vacancies||0)>0?d.new_vacancies+' neue Vakanzen':'Keine neuen Vakanzen'}`);
+  } catch(e) { showToast('Fehler'); }
+  btn.textContent=orig; btn.disabled=false;
+}
+
 async function triggerScan() {
   const btn = document.querySelector('.nav-scan-btn');
   btn.textContent = 'Scan läuft…';
