@@ -38,6 +38,15 @@ async function sbUpsert(table, body, onConflict) {
   return r.json();
 }
 
+async function sbDelete(table, filter) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}`, {
+    method: 'DELETE',
+    headers: { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`, 'Content-Type': 'application/json' }
+  });
+  if (!r.ok) throw new Error(`Supabase DELETE ${table}: ${await r.text()}`);
+  return true;
+}
+
 async function sbUpdate(table, filter, body) {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}`, {
     method: 'PATCH',
@@ -1420,7 +1429,9 @@ async function uploadContacts(req, res) {
         {
           method: 'POST',
           headers: {
-            ...sbHeaders(),
+            'apikey': SUPABASE_SERVICE_KEY,
+            'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+            'Content-Type': 'application/json',
             'Prefer': 'resolution=merge-duplicates,return=minimal'
           },
           body: JSON.stringify({
@@ -1463,6 +1474,12 @@ async function uploadTargets(req, res) {
   if (!Array.isArray(targets) || !targets.length)
     return res.status(400).json({ error: 'targets array fehlt' });
 
+  const SB_HEADERS = {
+    'apikey': SUPABASE_SERVICE_KEY,
+    'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+    'Content-Type': 'application/json'
+  };
+
   // Schritt 1: Alle bestehenden auf inactive setzen wenn replace=true
   if (replace) {
     await sbUpdate('career_targets', 'active=eq.true', { active: false });
@@ -1474,10 +1491,7 @@ async function uploadTargets(req, res) {
     try {
       const r = await fetch(`${SUPABASE_URL}/rest/v1/career_targets`, {
         method: 'POST',
-        headers: {
-          ...sbHeaders(),
-          'Prefer': 'resolution=merge-duplicates,return=minimal'
-        },
+        headers: { ...SB_HEADERS, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
         body: JSON.stringify({
           company_name: t.company_name,
           career_url:   t.career_url   || null,
@@ -1492,18 +1506,8 @@ async function uploadTargets(req, res) {
         })
       });
       if (r.ok) upserted++;
-      else { errors++; console.error(await r.text()); }
+      else { errors++; console.error('uploadTargets error:', await r.text()); }
     } catch(e) { errors++; }
-  }
-
-  // Schritt 2: Vakanzen von inaktiven Firmen löschen
-  if (replace) {
-    await fetch(`${SUPABASE_URL}/rest/v1/career_vacancies?company_name=not.in.(${
-      targets.map(t => `"${t.company_name}"`).join(',')
-    })`, {
-      method: 'DELETE',
-      headers: sbHeaders()
-    });
   }
 
   return res.json({ total: targets.length, upserted, errors });
