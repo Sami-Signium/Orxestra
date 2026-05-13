@@ -1,4 +1,3 @@
-
 // api/scan.js
 // ORXESTRA Career Scanner v1
 // Eigenstaendiger Career Intelligence Scanner fuer oesterreichische Grossunternehmen
@@ -49,29 +48,31 @@ async function sbUpdate(table, filter, body) {
   return true;
 }
 
-const LEADERSHIP_SYSTEM_PROMPT = `Du bist ein Executive Search Spezialist. Analysiere den Text einer Karriereseite und extrahiere NUR Leitungspositionen.
+const LEADERSHIP_SYSTEM_PROMPT = `Du bist ein Executive Search Spezialist. Analysiere den Text einer Karriereseite und extrahiere NUR aktiv ausgeschriebene Leitungspositionen.
 
-EINSCHLIESSEN:
+KRITISCHE REGEL: Nur Positionen ausgeben die AKTIV AUSGESCHRIEBEN sind — d.h. es gibt einen konkreten Bewerbungslink oder Button. Erwaehnungen von bestehenden Fuehrungskraeften, Teamseiten, Pressetexte oder Unternehmensvorstellungen sind KEINE offenen Stellen.
+
+EINSCHLIESSEN (nur wenn aktiv ausgeschrieben):
 - C-Level: CEO, CFO, COO, CTO, CHRO, CMO, CDO, CRO, CPO, CIO, CSO
 - Geschaeftsfuehrung: Geschaeftsfuehrer/in, Managing Director, Generaldirektor, Vorstand
 - Bereichsleitung: Head of [Bereich], Director, Vice President, Senior Vice President
 - Abteilungsleitung: Leiter/in [Bereich] (bei Grossunternehmen)
 - Country Manager, Regional Director, Market Lead
-- General Counsel, Head of Strategy, Head of M&A
-- Alle sonstigen Leitungsfunktionen mit Fuehrungsverantwortung
 
 AUSSCHLIESSEN:
+- Positionen ohne direkten Bewerbungslink
+- Bestehende Stelleninhaber (z.B. "Unser CEO ist...")
 - Team Lead / Gruppenleiter (operative Ebene)
 - Sachbearbeiter, Specialist, Analyst, Coordinator
 - Junior, Trainee, Werkstudent, Praktikant
-- Techniker, Meister, Fachkraft (ohne Leitungsfunktion)
+- Positionen aus anderen Laendern wenn klar erkennbar (z.B. "Texas", "Vietnam", "Spain")
 
 Du bekommst den Seitentext UND eine Liste von Links (Text → URL) von der Karriereseite.
-Versuche fuer jede gefundene Position den passenden direkten Link aus der Linkliste zuzuordnen.
-Ein Link passt wenn der Linktext den Jobtitel enthaelt oder sehr aehnlich ist.
+Ordne jeder Position den passenden direkten Bewerbungslink zu.
+WICHTIG: Wenn kein passender Link gefunden wird — Position NICHT ausgeben.
 
 Antworte AUSSCHLIESSLICH mit einem JSON-Array. Kein Text davor oder danach. Keine Erklaerung. Keine Markdown.
-Format: [{"title":"Positionstitel","department":"Bereich oder null","level":"C-Level|Geschaeftsfuehrung|Bereichsleitung|Abteilungsleitung|Sonstige Leitungsfunktion","job_url":"direkte URL zur Stelle oder null"}]
+Format: [{"title":"Positionstitel","department":"Bereich oder null","level":"C-Level|Geschaeftsfuehrung|Bereichsleitung|Abteilungsleitung|Sonstige Leitungsfunktion","job_url":"direkte URL zur Stelle — PFLICHTFELD"}]
 Wenn keine passenden Positionen: antworte mit []`;
 
 // ── Main Handler ──────────────────────────────────────────────────────────────
@@ -100,6 +101,7 @@ export default async function handler(req, res) {
     if (action === 'import-nukleus')        return await importNukleus(req, res);
     if (action === 'get-hr-contacts')       return await getHrContacts(req, res);
     if (action === 'upload-contacts')        return await uploadContacts(req, res);
+    if (action === 'upload-targets')         return await uploadTargets(req, res);
     if (action === 'add-target')             return await addTarget(req, res);
     if (action === 'delete-target')          return await deleteTarget(req, res);
     if (action === 'generate-brief')        return await generateBrief(req, res);
@@ -315,8 +317,11 @@ async function scanTarget(target) {
     const existingTitles = new Set(existing.map(e => e.job_title.toLowerCase().trim()));
     const foundTitles    = new Set(jobs.map(j => j.title.toLowerCase().trim()));
 
+    // Nur Jobs MIT direktem Bewerbungslink speichern
+    const validJobs = jobs.filter(j => j.job_url && j.job_url.startsWith('http'));
+
     let newCount = 0;
-    for (const job of jobs) {
+    for (const job of validJobs) {
       if (!existingTitles.has(job.title.toLowerCase().trim())) {
         try {
           await sbInsert('career_vacancies', {
@@ -409,7 +414,9 @@ async function scanAllCompanies(req, res) {
 }
 
 async function getVacancies(req, res) {
-  const { min_days = 0, level, limit = 200 } = req.query;
+  const { min_days = 0, level, limit = 200, nukleus } = req.query;
+  // Nukleus-Filter: View nutzen die priority=10 Firmen joined
+  const table = nukleus === 'true' ? 'nukleus_vacancies' : 'career_vacancies';
   let params = `is_active=eq.true&order=first_seen_at.desc&limit=${limit}`;
   if (level) params += `&job_level=eq.${encodeURIComponent(level)}`;
   if (parseInt(min_days) > 0) {
@@ -417,7 +424,7 @@ async function getVacancies(req, res) {
     cutoff.setDate(cutoff.getDate() - parseInt(min_days));
     params += `&first_seen_at=lte.${cutoff.toISOString()}`;
   }
-  const vacancies = await sbSelect('career_vacancies', params);
+  const vacancies = await sbSelect(table, params);
   return res.json({ vacancies, count: vacancies.length });
 }
 
@@ -1448,4 +1455,56 @@ async function deleteTarget(req, res) {
   if (!target_id) return res.status(400).json({ error: 'target_id fehlt' });
   await sbDelete('career_targets', `id=eq.${target_id}`);
   return res.json({ ok: true });
+}
+
+// ── Upload Targets (Masterliste) ──────────────────────────────────────────────
+async function uploadTargets(req, res) {
+  const { targets, replace = false } = req.body || {};
+  if (!Array.isArray(targets) || !targets.length)
+    return res.status(400).json({ error: 'targets array fehlt' });
+
+  // Schritt 1: Alle bestehenden auf inactive setzen wenn replace=true
+  if (replace) {
+    await sbUpdate('career_targets', 'active=eq.true', { active: false });
+  }
+
+  let upserted = 0, errors = 0;
+  for (const t of targets) {
+    if (!t.company_name) continue;
+    try {
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/career_targets`, {
+        method: 'POST',
+        headers: {
+          ...sbHeaders(),
+          'Prefer': 'resolution=merge-duplicates,return=minimal'
+        },
+        body: JSON.stringify({
+          company_name: t.company_name,
+          career_url:   t.career_url   || null,
+          country:      t.country      || 'AT',
+          industry:     t.industry     || null,
+          hr_name:      t.hr_name      || null,
+          hr_titel:     t.hr_titel     || null,
+          hr_email:     t.hr_email     || null,
+          priority:     t.priority     || 10,
+          source:       t.source       || 'Upload',
+          active:       true
+        })
+      });
+      if (r.ok) upserted++;
+      else { errors++; console.error(await r.text()); }
+    } catch(e) { errors++; }
+  }
+
+  // Schritt 2: Vakanzen von inaktiven Firmen löschen
+  if (replace) {
+    await fetch(`${SUPABASE_URL}/rest/v1/career_vacancies?company_name=not.in.(${
+      targets.map(t => `"${t.company_name}"`).join(',')
+    })`, {
+      method: 'DELETE',
+      headers: sbHeaders()
+    });
+  }
+
+  return res.json({ total: targets.length, upserted, errors });
 }
